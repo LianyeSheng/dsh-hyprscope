@@ -1,5 +1,8 @@
 /** `hyprscope` command line: read-only observation of a running Hyprland session. */
-import { existsSync, readFileSync } from 'node:fs'
+import { accessSync, constants, existsSync, readFileSync, statSync } from 'node:fs'
+import { access, stat } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import { delimiter, dirname, join } from 'node:path'
 import { ErrorCode, HyprscopeError } from './errors.ts'
 import { baselinePaths, readBaseline } from './compat/baseline.ts'
 import { compareEffective, measureEffective } from './compat/staleness.ts'
@@ -10,8 +13,8 @@ import { EventStream } from './events.ts'
 import * as format from './format.ts'
 import { hyprctlJson } from './hyprctl.ts'
 import { readLockState } from './lock.ts'
-import { capture, defaultCapturePath, parseRegion } from './screenshot.ts'
-import { captureToplevel, listToplevels } from './toplevel.ts'
+import { capture, defaultCapturePath, parseRegion, preflightCaptureOutput } from './screenshot.ts'
+import { captureToplevel, listToplevels, type Toplevel } from './toplevel.ts'
 import { listInstanceDirs } from './session.ts'
 import { parseDesktopTarget, resolveTarget } from './desktop/target.ts'
 import type { DesktopTarget, ResolvedTarget } from './desktop/types.ts'
@@ -113,7 +116,7 @@ const COMMANDS = [
 
 /** Commands that exist only under the `control` surface. */
 const CONTROL_COMMANDS = new Set([
-  'run', 'request', 'status', 'done', 'panic', 'install-bind', 'uninstall-bind', 'baseline', 'desktop',
+  'run', 'ops', 'status', 'panic', 'install-bind', 'uninstall-bind', 'baseline', 'desktop',
 ])
 
 /**
@@ -182,6 +185,77 @@ function print<T>(io: Io, value: T, json: boolean, render: (value: T) => string)
   io.stdout.write(json ? `${JSON.stringify(value, null, 2)}\n` : `${render(value)}\n`)
 }
 
+/** One candidate window for an ambiguous `--window-app`/`--window-title` selector. */
+export interface WindowCandidate {
+  /** Foreign-toplevel identifier the capture helper accepts. */
+  identifier: string
+  /** Hyprland address (`0x…`); null when no client record matched the toplevel. */
+  address: string | null
+  appId: string
+  /** Workspace id; null when no client record matched the toplevel. */
+  workspace: number | null
+  title: string
+  /** Whether it sits on the active workspace; null when the active workspace is unknown. */
+  active: boolean | null
+}
+
+/**
+ * Pair selector matches with client records and order them deterministically.
+ *
+ * The capture helper reports foreign toplevels, while addresses, workspaces and
+ * the active workspace come from `hyprctl`. Ordering is by workspace id, then
+ * address, then identifier, so an ambiguity report is stable across runs.
+ * @param matches Toplevels the selector matched.
+ * @param clients Client records from `hyprctl clients`.
+ * @param activeWorkspaceId Active workspace id, or null when it could not be read.
+ * @returns Candidates in deterministic order.
+ */
+export function windowCandidates(
+  matches: Toplevel[], clients: RawClient[], activeWorkspaceId: number | null,
+): WindowCandidate[] {
+  const byStableId = new Map<string, RawClient>()
+  for (const client of clients) {
+    if (typeof client.stableId === 'string' && client.stableId !== '') byStableId.set(client.stableId, client)
+  }
+  return matches.map(match => {
+    const client = byStableId.get(match.identifier)
+    const address = typeof client?.address === 'string' && client.address !== '' ? client.address : null
+    const workspace = typeof client?.workspace?.id === 'number' ? client.workspace.id : null
+    return {
+      identifier: match.identifier,
+      address,
+      appId: match.appId,
+      workspace,
+      title: match.title,
+      active: activeWorkspaceId === null ? null : workspace === activeWorkspaceId,
+    }
+  }).sort((left, right) => {
+    const leftWorkspace = left.workspace ?? Number.MAX_SAFE_INTEGER
+    const rightWorkspace = right.workspace ?? Number.MAX_SAFE_INTEGER
+    if (leftWorkspace !== rightWorkspace) return leftWorkspace - rightWorkspace
+    const leftAddress = (left.address ?? left.identifier).toLowerCase()
+    const rightAddress = (right.address ?? right.identifier).toLowerCase()
+    if (leftAddress !== rightAddress) return leftAddress < rightAddress ? -1 : 1
+    return left.identifier < right.identifier ? -1 : left.identifier > right.identifier ? 1 : 0
+  })
+}
+
+/**
+ * Render one stable line per ambiguous selector candidate.
+ * @param candidates Candidates in deterministic order.
+ * @returns Human-readable lines.
+ */
+export function renderWindowCandidates(candidates: WindowCandidate[]): string[] {
+  return candidates.map(candidate => {
+    const address = candidate.address ?? candidate.identifier
+    const workspace = candidate.workspace === null ? 'workspace unknown' : `workspace ${candidate.workspace}`
+    const state = candidate.active === null
+      ? 'active workspace unknown'
+      : candidate.active ? 'on active workspace' : 'off-screen'
+    return `  - ${address}  ${candidate.appId}  ${workspace}  title ${JSON.stringify(candidate.title)}  ${state}`
+  })
+}
+
 /**
  * Resolve a screenshot window selector to a foreign-toplevel identifier.
  *
@@ -193,7 +267,7 @@ function print<T>(io: Io, value: T, json: boolean, render: (value: T) => string)
  * @param options Parsed command line.
  * @returns Identifier the capture helper accepts.
  */
-async function resolveWindowIdentifier(session: Session, options: CliOptions): Promise<string> {
+export async function resolveWindowIdentifier(session: Session, options: CliOptions): Promise<string> {
   const timeoutMs = options.timeoutMs ?? 5000
   if (options.windowId !== undefined) {
     const wanted = options.windowId.trim()
@@ -227,11 +301,20 @@ async function resolveWindowIdentifier(session: Session, options: CliOptions): P
     })
   }
   if (matches.length > 1) {
+    // Addresses, workspaces and the active workspace come from hyprctl; a
+    // failure there must not hide the ambiguity, so both reads are best-effort.
+    const [clients, activeWorkspace] = await Promise.all([
+      hyprctlJson<RawClient[]>(session, 'clients', [], { timeoutMs }).catch(() => null),
+      hyprctlJson<RawWorkspace>(session, 'activeworkspace', [], { timeoutMs }).catch(() => null),
+    ])
+    const activeWorkspaceId = typeof activeWorkspace?.id === 'number' ? activeWorkspace.id : null
+    const candidates = windowCandidates(matches, clients ?? [], activeWorkspaceId)
     throw new HyprscopeError(ErrorCode.USAGE,
-      `${matches.length} windows match this ${label}; use --window-id to pick one`, {
-        candidates: matches.map(entry => ({
-          identifier: entry.identifier, appId: entry.appId, title: entry.title,
-        })),
+      `${matches.length} windows match this ${label}; use --window-id to pick one:\n`
+        + renderWindowCandidates(candidates).join('\n'), {
+        selector: wanted,
+        candidates,
+        hint: 'Pass --window-id with the window address shown above',
       })
   }
   return matches[0]!.identifier
@@ -361,6 +444,158 @@ function renderBaselineSummary(baseline: DoctorReport['baseline']): string {
   return lines.join('\n')
 }
 
+/** One-line semantics of window capture; also reported in `limitations`. */
+export const CAPTURE_WINDOW_SEMANTICS = 'window capture asks the compositor for the toplevel (ext-foreign-toplevel-list), so it also works for a mapped window on an inactive workspace or off-screen; it does not need the window to be visible, and the PNG carries the window size, not the output size'
+
+/**
+ * Find an executable by name on PATH or by absolute path.
+ * @param name Binary name or path.
+ * @param env Environment holding PATH.
+ * @returns Absolute path when found, else null.
+ */
+function lookupExecutable(name: string, env: NodeJS.ProcessEnv): string | null {
+  const candidate = (path: string): string | null => {
+    try {
+      if (!statSync(path).isFile()) return null
+      accessSync(path, constants.X_OK)
+      return path
+    } catch {
+      return null
+    }
+  }
+  if (name.includes('/')) return candidate(name)
+  for (const directory of (env.PATH ?? '').split(delimiter)) {
+    if (directory === '') continue
+    const found = candidate(join(directory, name))
+    if (found !== null) return found
+  }
+  return null
+}
+
+/**
+ * Resolve the Quickshell binary the consent overlay starts.
+ *
+ * Doctor only looks it up: neither the overlay nor the binary is spawned, so the
+ * report stays read-only.
+ * @param env Environment to read (`HYPRSCOPE_QUICKSHELL` and `PATH`).
+ * @returns Overlay runtime fact.
+ */
+export function resolveOverlayRuntime(env: NodeJS.ProcessEnv = process.env): DoctorReport['environment']['overlay'] {
+  const override = env.HYPRSCOPE_QUICKSHELL
+  const binary = override === undefined || override === '' ? 'quickshell' : override
+  const source = override === undefined || override === '' ? 'default' : 'environment'
+  const path = lookupExecutable(binary, env)
+  if (path !== null) return { binary, path, available: true, source, hint: null }
+  const fallback = lookupExecutable('qs', env)
+  const hint = fallback === null
+    ? 'install quickshell or point HYPRSCOPE_QUICKSHELL at the binary; observation still works, but consent cards cannot appear'
+    : `quickshell is not on PATH; set HYPRSCOPE_QUICKSHELL=qs (found at ${fallback}) so the overlay finds it`
+  return { binary, path: null, available: false, source, hint }
+}
+
+/**
+ * Resolve the state directory shared by the baseline, lease and desktop records.
+ * @param env Environment to read.
+ * @returns Absolute `$XDG_STATE_HOME/hyprscope` path.
+ */
+export function stateDirectoryPath(env: NodeJS.ProcessEnv = process.env): string {
+  const base = env.XDG_STATE_HOME || join(env.HOME ?? homedir(), '.local', 'state')
+  return join(base, 'hyprscope')
+}
+
+/**
+ * Check whether the state directory accepts a new file, without writing one.
+ *
+ * A missing directory is created on first use, so the nearest existing ancestor
+ * is probed with `access(W_OK)`; nothing is created or deleted.
+ * @param env Environment to read.
+ * @returns State directory fact.
+ */
+export async function inspectStateDirectory(
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<DoctorReport['environment']['state']> {
+  const path = stateDirectoryPath(env)
+  const status = await stat(path).catch(() => null)
+  if (status !== null && !status.isDirectory()) {
+    return {
+      path, exists: false, writable: false, probe: path,
+      reason: 'the state path is occupied by a file, not a directory',
+    }
+  }
+  if (status !== null) {
+    try {
+      await access(path, constants.W_OK)
+      return { path, exists: true, writable: true, probe: path, reason: null }
+    } catch (error) {
+      return {
+        path, exists: true, writable: false, probe: path,
+        reason: `the state directory is not writable: ${error instanceof Error ? error.message : String(error)}`,
+      }
+    }
+  }
+  let probe = dirname(path)
+  while (true) {
+    const ancestor = await stat(probe).catch(() => null)
+    if (ancestor !== null) {
+      if (!ancestor.isDirectory()) {
+        return { path, exists: false, writable: false, probe, reason: `${probe} is not a directory` }
+      }
+      break
+    }
+    const parent = dirname(probe)
+    if (parent === probe) {
+      return {
+        path, exists: false, writable: false, probe,
+        reason: 'no existing parent directory is available for the state directory',
+      }
+    }
+    probe = parent
+  }
+  try {
+    await access(probe, constants.W_OK)
+    return { path, exists: false, writable: true, probe, reason: null }
+  } catch (error) {
+    return {
+      path, exists: false, writable: false, probe,
+      reason: `the nearest existing ancestor ${probe} is not writable: ${error instanceof Error ? error.message : String(error)}`,
+    }
+  }
+}
+
+/**
+ * Limitations doctor prints; the `capture.window` line states when window capture works.
+ * @returns Limitation lines.
+ */
+export function doctorLimitations(): string[] {
+  return [
+    'hyprscope is read-only: it never mutates the desktop. Mutation happens only through "hyprscope control" (lease + plan).',
+    'Lock state is best-effort: only logind LockedHint is read, and a negative hint does not prove the session is unlocked.',
+    'Every client of one compositor shares one wl_seat, so later input injection reaches the focused window of the user session.',
+    `capture.window: ${CAPTURE_WINDOW_SEMANTICS}.`,
+  ]
+}
+
+/**
+ * Render the environment section doctor adds after the standard report.
+ * @param environment Environment facts.
+ * @returns Human-readable lines.
+ */
+export function renderEnvironmentSummary(environment: DoctorReport['environment']): string {
+  const { overlay, state } = environment
+  const overlayLine = overlay.available
+    ? `${overlay.binary} at ${overlay.path} (${overlay.source})`
+    : `${overlay.binary} not found on PATH (${overlay.source})`
+  const writable = state.writable === null ? 'writability unknown' : state.writable ? 'writable' : 'not writable'
+  const lines = [
+    'environment',
+    `  overlay runtime  ${overlayLine}`,
+    `  state directory  ${state.path} (${state.exists ? 'exists' : 'missing'}, ${writable})`,
+  ]
+  if (overlay.hint !== null) lines.push(`  overlay hint     ${overlay.hint}`)
+  if (state.reason !== null) lines.push(`  state hint       ${state.reason}`)
+  return lines.join('\n')
+}
+
 /**
  * Probe the environment and report the observation surface.
  * @param session Discovered session.
@@ -370,10 +605,10 @@ function renderBaselineSummary(baseline: DoctorReport['baseline']): string {
 async function doctor(resolved: ResolvedTarget, options: CliOptions): Promise<DoctorReport> {
   const session = resolved.session
   const query = <T>(command: string) => hyprctlJson<T>(session, command, [], { timeoutMs: options.timeoutMs })
-  const [version, status, clients, workspaces, monitors, layers, baseline] = await Promise.all([
+  const [version, status, clients, workspaces, monitors, layers, state, baseline] = await Promise.all([
     query<RawVersion>('version'), query<RawStatus>('status'), query<RawClient[]>('clients'),
     query<RawWorkspace[]>('workspaces'), query<RawMonitor[]>('monitors'), query<RawLayers>('layers'),
-    baselineReport(resolved),
+    inspectStateDirectory(process.env), baselineReport(resolved),
   ])
   let wayland: DoctorReport['capabilities']['wayland'] = null
   if (existsSync(probeBinaryPath())) {
@@ -414,13 +649,14 @@ async function doctor(resolved: ResolvedTarget, options: CliOptions): Promise<Do
       action: [],
       wayland,
     },
+    environment: {
+      overlay: resolveOverlayRuntime(process.env),
+      state,
+      capture: { window: CAPTURE_WINDOW_SEMANTICS },
+    },
     baseline,
     isolation: describeIsolation(),
-    limitations: [
-      'hyprscope is read-only: it never mutates the desktop. Mutation happens only through "hyprscope control" (lease + plan).',
-      'Lock state is best-effort: only logind LockedHint is read, and a negative hint does not prove the session is unlocked.',
-      'Every client of one compositor shares one wl_seat, so later input injection reaches the focused window of the user session.',
-    ],
+    limitations: doctorLimitations(),
   }
 }
 
@@ -503,7 +739,8 @@ export async function main(
       case 'doctor': {
         const report = await doctor(resolved, options)
         print(io, report, options.json,
-          value => `${format.renderDoctor(value)}\n\n${renderBaselineSummary(value.baseline)}`)
+          value => `${format.renderDoctor(value)}\n\n${renderEnvironmentSummary(value.environment)}\n\n`
+            + renderBaselineSummary(value.baseline))
         return 0
       }
       case 'state':
@@ -536,13 +773,18 @@ export async function main(
         const selectors = [options.windowId, options.windowApp, options.windowTitle]
           .filter((value): value is string => value !== undefined)
         if (selectors.length > 1) throw usage('Choose one of --window-id, --window-app, or --window-title')
+        if (selectors.length === 1 && (options.monitor !== undefined || options.region !== undefined)) {
+          throw usage('A window capture cannot be combined with --monitor or --region')
+        }
+        // The destination is checked before any compositor work: an explicit
+        // --output must point into an existing, writable directory, while the
+        // default cache directory is created as before.
+        const output = options.output ?? defaultCapturePath()
+        await preflightCaptureOutput(output, { create: options.output === undefined })
         if (selectors.length === 1) {
-          if (options.monitor !== undefined || options.region !== undefined) {
-            throw usage('A window capture cannot be combined with --monitor or --region')
-          }
           const identifier = await resolveWindowIdentifier(session, options)
           const result = await captureToplevel(session, {
-            output: options.output ?? defaultCapturePath(),
+            output,
             identifier,
             timeoutMs: options.timeoutMs ?? 10000,
           })
@@ -550,7 +792,7 @@ export async function main(
           return 0
         }
         const result = await capture(session, {
-          output: options.output,
+          output,
           monitor: options.monitor,
           region: options.region === undefined ? undefined : parseRegion(options.region),
           timeoutMs: options.timeoutMs ?? 10000,

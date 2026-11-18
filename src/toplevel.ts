@@ -9,12 +9,11 @@
  */
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { readFile, rm, writeFile } from 'node:fs/promises'
 import { promisify } from 'node:util'
 import { ErrorCode, HyprscopeError } from './errors.ts'
 import { encodePng, type RgbaImage } from './png.ts'
-import { pngDimensions, type CaptureResult } from './screenshot.ts'
+import { pngDimensions, preflightCaptureOutput, type CaptureResult } from './screenshot.ts'
 import type { Session } from './types.ts'
 
 const run = promisify(execFile)
@@ -230,6 +229,11 @@ export function orientImage(image: RgbaImage, transform: number): RgbaImage {
 
 /**
  * Capture one foreign toplevel to a PNG file.
+ *
+ * The destination directory must already exist and be writable: the same
+ * `SCREENSHOT_FAILED` preflight as {@link capture} runs first, so an explicit
+ * output is never silently created and the caller is told to pass a writable
+ * `--output` path.
  * @param session Discovered session.
  * @param options Destination, identifier, and helper options.
  * @returns Capture metadata, with `source.scope` set to `window`.
@@ -243,7 +247,7 @@ export async function captureToplevel(session: Session, options: CaptureToplevel
   }
   const capturedAt = (options.now ?? new Date()).toISOString()
   const rawPath = `${options.output}.rgba`
-  await mkdir(dirname(options.output), { recursive: true })
+  await preflightCaptureOutput(options.output)
   const call = helper(
     session, env,
     ['--capture', options.identifier, '--raw', rawPath, '--timeout-ms', String(timeoutMs)],

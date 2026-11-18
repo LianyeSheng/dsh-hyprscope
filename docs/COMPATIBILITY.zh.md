@@ -58,7 +58,7 @@
 
 | id | 检测什么 | 缺了会怎样 |
 |---|---|---|
-| `safety.failsafe-bind` | Lua 入口配置存在且可读、`hyprctl binds -j` 里能看到带描述文字的绑定 | 少一条交还路径；TTL、`done`、横幅按钮仍在，所以不算 `required` |
+| `safety.failsafe-bind` | Lua 入口配置存在且可读、`hyprctl binds -j` 里能看到带描述文字的绑定 | 少一条交还路径；TTL、运行自身的交还路径、横幅按钮仍在，所以不算 `required` |
 
 注意这一项在探测时**只做只读核对**：不写配置、不装快捷键、不跑 `hyprctl reload`。reload 能不能成功只有 `hyprscope control install-bind` 自己知道：它检查的是 `~/.config/hypr/hyprland.lua` 存在且可读（没有额外的 config provider 检查），配置报错或绑定没出现在 `hyprctl binds` 时会还原配置；但 `hyprctl reload` 本身抛错的分支不会还原，这是已知缺口。
 
@@ -146,7 +146,7 @@ effective(cap) =
 
 - **方向**：代码是上界，基线只能减。基线里出现代码不认识的 id → 忽略并告警；基线里缺的 id → 按 `unknown`。
 - **失败位置**（越早越好）：
-  1. 同意卡片之前：`hyprscope control run`、`hyprscope control run --dry-run` 和 `hyprscope control request` 会拒绝用到缺失能力的计划或请求（`CAPABILITY`），并点名能力 id 和一句人话；
+  1. 同意卡片之前：`hyprscope control run` 和 `hyprscope control run --dry-run` 会拒绝用到缺失能力的计划（`CAPABILITY`），并点名能力 id 和一句人话；
   2. 恢复：派生计划在租约续期之前会对照同一份固定基线重新检查，因此机器跑不了的恢复步骤会让这次尝试以 `recovery.capability` fault，而不是悄悄续期控制权；
   3. 执行期：只剩「基线说支持、现场却变了」这一类，走现有 fault 与干扰路径。
 - **基线不存在或 `incomplete`**：控制不可用，只读可用（`state`、`screenshot`、`events` 不受影响）。默认就该是关的。
@@ -158,7 +158,7 @@ effective(cap) =
 | 信息源 | 回答什么 | 何时运行 |
 |---|---|---|
 | 版本表 | schema、协议 global、JSON 字段名、`hl.dsp.*` 是否存在 | 每个 Hyprland 版本一次 |
-| 运行时查询 | 生效配置：`configProvider`、`input:follow_mouse`、`hyprctl binds`（含 modmask）、`configerrors` | 探针时，以及每次 `run`/`request` 之前 |
+| 运行时查询 | 生效配置：`configProvider`、`input:follow_mouse`、`hyprctl binds`（含 modmask）、`configerrors` | 探针时，以及每次 `run` 之前 |
 | 薄探针 | 查询替代不了的往返：dispatch 被接受、指针落点、按键送达、测试窗口规则、事件流 | 安装时，以及任何失效之后 |
 
 比对遵循四条规则：
@@ -166,7 +166,7 @@ effective(cap) =
 1. **精确比对字段，没有阈值。** 版本、provider、`input:follow_mouse`、绑定数量、是否绑定了不带修饰键的 F12、作为集合的配置错误，都逐项精确比对；任何不一致都是 `stale`。
 2. **只有记录了 `configHash` 才比对它。** 有生成配置的基线会记录 `configHash`；记录为 null 表示没有生成配置，也就没有可比的东西。改一个片段就会改变这个哈希。
 3. **基线缺记录值 → `unverified`。** 在漂移跟踪之前写下的基线没有 `effective` 块；它无法证明任何事，控制会一直拒绝，直到重测。
-4. **运行中观测不到值 → `stale`；`stale` 优先于 `unverified`。** 两种判定都按失败关闭：`run`（含 `--dry-run`）和 `request` 会在任何同意卡片之前以 `CAPABILITY` 拒绝。
+4. **运行中观测不到值 → `stale`；`stale` 优先于 `unverified`。** 两种判定都按失败关闭：`run`（含 `--dry-run`）会在任何同意卡片之前以 `CAPABILITY` 拒绝。
 
 - 配置文件不是推断依据。Lua provider 下它是程序；`hyprlang` 下它仍会 include 其它文件、使用变量。`hyprctl getoption`、`binds` 和 `configerrors` 报告的是真正生效的状态；文件 hash 只是一个便宜的失效触发器。
 - 窗口规则没有查询接口：通配规则是否让测试窗口变成平铺、改尺寸或拒绝聚焦，只能开那个窗口观察。这个观察很便宜（一个窗口、几次读取），留在薄探针里。
@@ -207,7 +207,7 @@ effective(cap) =
 | `src/plan/model.ts` | 每个谓词和 op 上的 `requires: CapabilityId[]`（仍是代码常量） |
 | `src/plan/run.ts` | 同意卡片之前的门控、运行报告里的基线回执、派生计划复查 |
 | `src/plan/recover.ts`, `src/plan/executor.ts` | `restorability()` 查询有效集；`executePlan` 也承载探针的内部测量模式 |
-| `src/lease/cli.ts` | 命令接口；`request` 与 `run --dry-run` 的门控；`--desktop` 选择 |
+| `src/lease/cli.ts` | 命令接口；`run`/`--dry-run` 的门控；`--desktop` 选择 |
 | `src/cli.ts`, `src/types.ts` | `doctor` 基线摘要，只读 |
 | `test/compat.test.ts`, `test/compat-gate.test.ts` | 目录、读取器与门控测试，不需要 compositor |
 | `src/compat/staleness.ts` | 测量生效配置并与指纹比对，给出 `fresh`、`stale` 或 `unverified` |

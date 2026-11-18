@@ -24,8 +24,8 @@
   en: ae6dcaf3c685a8ff
   zh: 8eea7f18487fa8f9
 /compatibility-and-the-capability-baseline/3-capability-catalog/3-3-degraded:
-  en: 96b26187d51b38e9
-  zh: 4d63b6027fed0f66
+  en: 3749c9f4cf26ba86
+  zh: ab328d6a7ac38862
 /compatibility-and-the-capability-baseline/3-capability-catalog/3-4-optional:
   en: b4aad40b3230023e
   zh: bdeb6752dde7b107
@@ -51,11 +51,11 @@
   en: 8d61c360361e2700
   zh: 1d221b479d5e13e4
 /compatibility-and-the-capability-baseline/5-the-effective-capability-set:
-  en: de01cc755a4da547
-  zh: 0752d65e19e27f5a
+  en: 841138eaca544699
+  zh: 38ef2a799f81dc6a
 /compatibility-and-the-capability-baseline/5-the-effective-capability-set/5-1-drift-and-staleness:
-  en: c2838281298e713a
-  zh: 8e0bd261690a5a8d
+  en: c9e6c9e7c5fa20a8
+  zh: 585cdf8302ed0fe1
 /compatibility-and-the-capability-baseline/6-anti-whitewashing:
   en: 7251418ad74f8f7e
   zh: e629a425cd4d4038
@@ -63,8 +63,8 @@
   en: 14b004ab2557a3ee
   zh: 7c31f04bd8dfbc7e
 /compatibility-and-the-capability-baseline/8-where-it-lands-in-code:
-  en: 69bae4aaa6ec73c7
-  zh: d593a0761ff34c28
+  en: 3740932c2a2f4089
+  zh: ba84477c21243f6a
 /compatibility-and-the-capability-baseline/9-a-full-installation-walkthrough:
   en: e2ef0154034f1824
   zh: be205d47f987c042

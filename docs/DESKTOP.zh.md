@@ -77,7 +77,7 @@ $XDG_STATE_HOME/hyprscope/desktop/     # persistent, agent-editable
 
 - 漂移比对记录的版本、provider、`input:follow_mouse`、绑定数量、是否绑定了不带修饰键的 F12、作为集合的配置错误，以及记录存在时的 `configHash`。任何不一致都是 `stale`；基线没有记录的值是 `unverified`；运行中的 compositor 报不出来的值是 `stale`。
 - 在漂移跟踪之前写下的基线没有 `effective` 块，它是 `unverified`，控制会以 `CAPABILITY` 拒绝，直到重测。
-- `desktop status` 会把改动过的生成配置报成 `stale`；`doctor` 报告 target、`fresh`/`stale`/`unverified` 判定、原因和字段差异。`run`（含 `--dry-run`）和 `request` 会在任何同意卡片之前以 `CAPABILITY` 拒绝 stale 或 unverified 的基线，因为控制必须由"对正在运行的东西的测量"来决定；只读观察不受影响。
+- `desktop status` 会把改动过的生成配置报成 `stale`；`doctor` 报告 target、`fresh`/`stale`/`unverified` 判定、原因和字段差异。`run`（含 `--dry-run`）会在任何同意卡片之前以 `CAPABILITY` 拒绝 stale 或 unverified 的基线，因为控制必须由"对正在运行的东西的测量"来决定；只读观察不受影响。
 - 改 agent 片段会让基线失效。运行中的 compositor 还在用旧配置时，探针会被 `DESKTOP_FAILED` 拒绝（`stop and start the desktop before probing it`），所以流程是：先停桌面，再启动（新签名意味着新桌面需要单独探针），然后探测（放宽时探针会请宿主弹确认卡）。重启前把片段改回去，基线会重新变成 `fresh`。
 - 其余情况下，重测 stale 基线走正常的探针流程；收窄仍然自动生效，放宽时探针会自己请宿主验收。
 
@@ -86,7 +86,7 @@ $XDG_STATE_HOME/hyprscope/desktop/     # persistent, agent-editable
 ## 7. 同意
 
 - 启动或挂接 agent 桌面需要一次明确的用户确认（`--consent-source chat|card`，默认 `chat`）；`desktop.json` 记录确认的时间和方式（`source: "chat"` 或 `"card"`），这条记录是桌面内一切操作的依据。
-- 在 `agent` 或 `external` 桌面里，`run` 和 `request` 仍然以程序方式获取租约，绑定这次提交的计划和本次尝试的 TTL，但不弹卡片：桌面本身就是同意边界。`baseline --probe` 用的是同一套程序化租约。执行器的租约门禁和注入助手的租约自检照常生效，没有任何路径绕过它们。
+- 在 `agent` 或 `external` 桌面里，`run` 仍然以程序方式获取租约，绑定这次提交的计划和本次尝试的 TTL，但不弹卡片：桌面本身就是同意边界。`baseline --probe` 用的是同一套程序化租约。执行器的租约门禁和注入助手的租约自检照常生效，没有任何路径绕过它们。
 - 干扰询问属于用户桌面的浮层，受管桌面没有浮层。所以在 `agent` 或 `external` 里，可恢复干扰会直接让运行 fault，而不是弹卡片；agent 在对话里问用户，也不会派生恢复计划。
 - `user` 目标保持现在的模型：每次 run 一张卡、一个租约，随时可撤销。
 - `desktop stop` 会显式释放这个桌面的租约。关掉 compositor 窗口会杀掉进行中的 run，它以 `target.desktop-closed` fault，并在自己的 `finally` 路径里释放；没有 run 在跑、只由已脱离的 holder 持有的租约，到 TTL 自然结束。关窗没有单独的撤销路径，因为 compositor 已经没了，但 holder 是独立进程。
@@ -109,7 +109,8 @@ hyprscope control desktop attach --runtime-dir <dir> [--signature <sig>] [--cons
 hyprscope control desktop status [--json]
 hyprscope control desktop stop [--json]
 hyprscope control run plan.json --desktop user|agent|external [--json]
-hyprscope control request / status / done / panic --desktop user|agent|external [--json]
+hyprscope control status --desktop user|agent|external [--json]
+hyprscope control panic --desktop user|agent|external [--json]   # emergency only (failsafe shortcut / desktop stop)
 hyprscope control baseline --probe / --show --desktop user|agent|external [--json]
 hyprscope <command> --desktop user|agent|external [--json]
 ```

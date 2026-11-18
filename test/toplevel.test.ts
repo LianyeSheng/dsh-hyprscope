@@ -93,6 +93,23 @@ test('captureToplevel reports a helper-compositor failure as SCREENSHOT_FAILED',
   })
 })
 
+test('captureToplevel refuses an explicit output in a missing directory before running the helper', async (t) => {
+  const directory = tempDir()
+  t.after(() => removeDir(directory))
+  const capture = fakeCapture(directory)
+  const output = join(directory, 'missing', 'window.png')
+  await assert.rejects(captureToplevel(fakeSession(), {
+    output, identifier: '180001c6', binary: capture.script, env: captureEnv,
+  }), (error: Error & { code?: string; message: string; details?: { directory?: string } }) => {
+    assert.equal(error.code, 'SCREENSHOT_FAILED')
+    assert.match(error.message, /pass --output <writable path>/)
+    assert.equal(error.details?.directory, join(directory, 'missing'))
+    return true
+  })
+  assert.equal(existsSync(join(directory, 'missing')), false, 'the preflight must not create an explicit output directory')
+  assert.equal(existsSync(capture.args), false, 'the helper must not run when the destination is unusable')
+})
+
 test('captureToplevel explains a missing helper build', async (t) => {
   const directory = tempDir()
   t.after(() => removeDir(directory))

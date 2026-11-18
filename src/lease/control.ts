@@ -1,8 +1,9 @@
 /** Lease lifecycle: request, consent, hold, release, and stale cleanup. */
 import { spawn } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import { ErrorCode, HyprscopeError } from '../errors.ts'
 import type { RenderLanguage } from '../i18n.ts'
-import { hyprscopeBin, startOverlay, stopOverlayPid, type OverlayFactory } from './overlay.ts'
+import { startOverlay, stopOverlayPid, type OverlayFactory } from './overlay.ts'
 import {
   acquireLock, isTerminal, newLeaseId, newLeaseState, processAlive, readControl, readDecision, readState,
   releaseLock, removeFile, readAnswer, writeDecision, writeControl, writeState, ensureLeaseDirectory, leasePaths,
@@ -477,14 +478,24 @@ async function waitForDecision(
 }
 
 /**
+ * @returns Absolute path of the internal detached-holder entry module.
+ */
+export function holderEntry(): string {
+  return fileURLToPath(new URL('./hold-entry.ts', import.meta.url))
+}
+
+/**
  * Start the detached holder that keeps control until the lease ends.
+ *
+ * The holder is an internal module entry, never a CLI command: it is started
+ * directly so the control surface exposes only what an agent actually calls.
  * @param env Session environment for the child.
  * @param leaseId Lease identity.
  * @returns Holder pid, or null when spawn failed.
  */
 function spawnHolder(env: NodeJS.ProcessEnv, leaseId: string): number | null {
   try {
-    const child = spawn(process.execPath, [hyprscopeBin(), 'control', '__hold', '--lease', leaseId], {
+    const child = spawn(process.execPath, [holderEntry(), '--lease', leaseId], {
       env, detached: true, stdio: 'ignore',
     })
     child.unref()

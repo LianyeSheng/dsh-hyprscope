@@ -10,7 +10,9 @@
  */
 import { tr, type RenderLanguage } from '../i18n.ts'
 import type { LeaseConfirmCard } from '../lease/state.ts'
-import type { AnchorPoint, AbsolutePoint, Plan, PlanStep, StepOp, WindowTarget } from './model.ts'
+import {
+  planTextFor, type AnchorPoint, type AbsolutePoint, type Plan, type PlanStep, type StepOp, type WindowTarget,
+} from './model.ts'
 
 /** Steps listed before the preview collapses the rest into a count. */
 export const MAX_STEP_LINES = 10
@@ -236,9 +238,12 @@ export interface PlanCardOptions {
 export function describePlanCard(plan: Plan, options: PlanCardOptions = {}): LeaseConfirmCard {
   const lang: RenderLanguage = options.lang ?? 'zh'
   const verbs = [...new Set(plan.steps.map(step => pair(OP_VERBS[step.op], lang)))]
-  const description = plan.summary === null || plan.summary.trim() === ''
+  // An authored summary may be one string or per-language variants; the card
+  // always reads the variant for the language it is rendering.
+  const authored = plan.summary === null ? null : planTextFor(plan.summary, lang)
+  const description = authored === null || authored.trim() === ''
     ? (verbs.length === 0 ? tr(lang, '没有步骤', 'no steps') : verbs.join(' → '))
-    : clip(plan.summary, MAX_SUMMARY_CHARS)
+    : clip(authored, MAX_SUMMARY_CHARS)
   const seconds = (plan.budgetMs / 1000).toFixed(plan.budgetMs % 1000 === 0 ? 0 : 1)
   const stepWord = plan.steps.length === 1 ? 'step' : 'steps'
   const lines = [

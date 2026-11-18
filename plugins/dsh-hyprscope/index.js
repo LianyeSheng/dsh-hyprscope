@@ -9,7 +9,9 @@
  *
  * Read-only tools map to the bare observation commands. Control tools map to
  * `hyprscope control ...` and inherit the lease, capability-baseline and
- * locked-screenshot behaviour exactly as the CLI enforces it.
+ * locked-screenshot behaviour exactly as the CLI enforces it. The consent card
+ * belongs to the control run itself: a plan run blocks until it ends, so there
+ * is no separate lease request tool and no agent-side done/panic.
  *
  * No dependency and no import outside `node:` builtins: the bundle must resolve
  * without installing anything and runs in the Host process.
@@ -17,7 +19,7 @@
 
 import { execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
@@ -35,7 +37,6 @@ const OUTPUT_SCHEMA = { type: 'object', additionalProperties: true }
 const DESKTOP_VALUES = ['user', 'agent', 'external']
 const OBSERVE_KINDS = ['doctor', 'state', 'active', 'clients', 'workspaces', 'monitors', 'layers', 'cursor']
 const SCREENSHOT_SCOPES = ['layout', 'monitor', 'region']
-const LEASE_ACTIONS = ['request', 'status', 'done', 'panic']
 const PLAN_ACTIONS = ['validate', 'run']
 const BASELINE_ACTIONS = ['show', 'probe']
 const DESKTOP_ACTIONS = ['start', 'attach', 'status', 'stop']
@@ -45,21 +46,13 @@ const RENDER_LANGUAGES = ['zh', 'en']
 /** stdin target that makes `control run` read the plan document from stdin. */
 const PLAN_STDIN_TARGET = '-'
 
-/** Default id of the synthesized one-step plan behind hyprscope_act. */
-const ACT_DEFAULT_PLAN_ID = 'act'
-
-/** Plan ids the CLI accepts; checked here so a bad id fails before spawning. */
-const PLAN_ID_PATTERN = /^[A-Za-z0-9._-]+$/
-
-/** Longest consent-card reason hyprscope_act accepts. */
-const REASON_MAX_CHARS = 200
-
 /** Collection kinds that render as an array of items. */
 const ARRAY_KINDS = new Set(['clients', 'workspaces', 'monitors', 'layers'])
 
 /** Top-level keys kept when the doctor report is too long for the model context. */
 const DOCTOR_SUMMARY_KEYS = [
   'discovery', 'compositor', 'inventory', 'target', 'capabilities', 'baseline', 'isolation', 'limitations',
+  'pluginVersion', 'cliPath',
 ]
 
 /** Exact note added when a state snapshot is replaced by its summary. */
@@ -68,18 +61,43 @@ const STATE_SUMMARY_NOTE =
 
 /** Capability failure next step; control stays gated by an accepted baseline. */
 const CAPABILITY_NEXT_STEP =
-  'next step: run hyprscope_baseline with action "probe" and explain the evidence; when the measurement widens the '
-  + 'baseline the same call shows the host a confirmation card and waits for the answer. The tool never answers that '
-  + 'card and never claims the host accepted it.'
+  'next step: run hyprscope_baseline with action "probe" and explain the evidence. CAPABILITY means no accepted, '
+  + 'current baseline (missing, stale, incomplete or unverified). When the measurement widens the baseline the same '
+  + 'call shows the host a confirmation card and waits for the answer; the tool never answers that card and never '
+  + 'claims the host accepted it.'
+
+/** Usage or unknown-command failure next step: point the agent at the loaded wiring. */
+const DOCTOR_NEXT_STEP =
+  'next step: run hyprscope_observe with kind "doctor" to inspect the loaded wiring; its pluginVersion and cliPath '
+  + 'show which bundle and which bin/hyprscope.ts are in use. If the bundle was edited in the checkout, restart DSH '
+  + 'so the new code and tool schema replace the stale in-memory copy.'
+
+/** Read-only state directory next step: the baseline lives in the real state home. */
+const STATE_HOME_NEXT_STEP =
+  'next step: the state directory is read-only (EROFS); point XDG_STATE_HOME at a writable directory (in the DSH '
+  + 'Host environment, then restart DSH). The accepted baseline lives in the real state home '
+  + '($XDG_STATE_HOME/hyprscope/baseline.json, default ~/.local/state/hyprscope), so an override makes control look '
+  + 'un-baselined unless that baseline is available there.'
+
+/** Loaded plugin version, read once when the Host loads the bundle. */
+const PLUGIN_VERSION = readPluginVersion()
+
+/** Matches the kernel's read-only filesystem diagnostic as it reaches stderr. */
+const READ_ONLY_STATE_PATTERN = /\bEROFS\b|read-only file system/i
+
+/** Matches a CLI usage or unknown-command diagnostic. */
+const USAGE_PATTERN = /\bUSAGE\b|unknown command|unknown option|unrecognized/i
 
 /** System-prompt guidance added when the systemPrompt service is available. */
 const PROMPT_TEXT =
   'Use the hyprscope_* tools instead of composing hyprscope shell commands. Observation and screenshot tools are '
-  + 'read-only. Any desktop change needs a lease: hyprscope_act for one single-step action (one consent card and its '
-  + 'own short lease per call), hyprscope_lease request (the host gets a consent card), or hyprscope_plan run; every '
-  + 'one of them requires an accepted capability baseline. If a call fails with CAPABILITY, run hyprscope_baseline '
-  + 'action "probe", explain the evidence, and let the host answer the confirmation card the call may show. Never '
-  + 'approve a consent card on the host\'s behalf, and never claim the baseline was accepted.'
+  + 'read-only. A desktop change is a plan: hyprscope_plan run validates and executes it, shows the host\'s consent '
+  + 'card on the user desktop (or uses the agent/external desktop\'s programmatic consent), blocks until the run '
+  + 'ends, and returns the run report; validate is a dry run with no card. There is no separate lease request and no '
+  + 'agent-side done/panic. Every control call requires an accepted capability baseline. If a call fails with '
+  + 'CAPABILITY, run hyprscope_baseline action "probe", explain the evidence, and let the host answer the '
+  + 'confirmation card the call may show. Never approve a consent card on the host\'s behalf, and never claim the '
+  + 'baseline was accepted.'
 
 const DEFAULT_TIMEOUT_MS = 30_000
 const DEFAULT_CONTROL_TIMEOUT_MS = 180_000
@@ -87,7 +105,7 @@ const DEFAULT_MAX_OUTPUT_BYTES = 16 * 1024 * 1024
 const DEFAULT_MAX_RENDER_CHARS = 7_000
 const MIN_RENDER_CHARS = 64
 
-/** Register the eight hyprscope tools and the optional prompt section. */
+/** Register the six hyprscope tools and the optional prompt section. */
 export function apply(ctx, config = {}) {
   const settings = resolveSettings(config)
   const runtime = { ctx, settings }
@@ -182,11 +200,40 @@ function readConfigBoolean(value, label) {
   return value
 }
 
+/**
+ * Read the bundle's own package version when the Host loads it. A missing or
+ * malformed package.json is not an activation error: doctor then reports
+ * "unknown" rather than failing every call.
+ * @returns Version such as "0.3.0", or "unknown".
+ */
+function readPluginVersion() {
+  try {
+    const packagePath = fileURLToPath(new URL('./package.json', import.meta.url))
+    const parsed = JSON.parse(readFileSync(packagePath, 'utf8'))
+    return typeof parsed.version === 'string' && parsed.version.trim() !== '' ? parsed.version : 'unknown'
+  } catch {
+    return 'unknown'
+  }
+}
+
+/**
+ * Add the plugin's own provenance to a doctor report, so an agent can tell the
+ * loaded in-memory bundle from the checkout it just edited. Additive: the CLI's
+ * report is returned with two extra top-level fields.
+ * @param value Parsed CLI doctor report.
+ * @param settings Validated plugin settings.
+ * @returns The report plus pluginVersion and cliPath.
+ */
+function withPluginProvenance(value, settings) {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return value
+  return { ...value, pluginVersion: PLUGIN_VERSION, cliPath: settings.entryPath }
+}
+
 // ---------------------------------------------------------------------------
 // Tool definitions
 
 /**
- * Build the eight tool definitions.
+ * Build the six tool definitions.
  * @param runtime Plugin context and validated settings.
  * @returns Raw ToolDefinition objects for ctx.tools.register.
  */
@@ -195,9 +242,7 @@ function createTools(runtime) {
     createObserveTool(runtime),
     createScreenshotTool(runtime),
     createEventsTool(runtime),
-    createLeaseTool(runtime),
     createPlanTool(runtime),
-    createActTool(runtime),
     createBaselineTool(runtime),
     createDesktopTool(runtime),
   ]
@@ -261,7 +306,9 @@ function createObserveTool(runtime) {
       + 'one full snapshot (state), read the focused window and workspace (active), or read one collection (clients, '
       + 'workspaces, monitors, layers, cursor). Nothing here changes the desktop and no lease or baseline is involved. '
       + 'Long results are compacted; read the specific collection instead of re-reading state. Use the control tools '
-      + 'only when a change is actually needed.',
+      + 'only when a change is actually needed. The doctor result also carries pluginVersion (the loaded bundle\'s '
+      + 'package version) and cliPath (the resolved bin/hyprscope.ts it spawns), so a stale in-memory plugin is '
+      + 'detectable: after editing the bundle, restart DSH and compare pluginVersion with the checkout.',
     parameters: parameters({
       kind: {
         type: 'string',
@@ -293,7 +340,10 @@ function createObserveTool(runtime) {
       appendInstanceFlags(argv, input, 'hyprscope_observe')
       const result = await runCli(runtime, argv, { timeoutMs: timeoutMs + 5_000, signal: exec.signal })
       assertSuccess(result, argv)
-      return parseJsonStdout(result.stdout, argv)
+      const value = parseJsonStdout(result.stdout, argv)
+      // Doctor is the discovery surface: add the loaded bundle's provenance so
+      // an agent can compare it with the checkout it is editing.
+      return kind === 'doctor' ? withPluginProvenance(value, settings) : value
     },
   }
 }
@@ -487,71 +537,6 @@ function createEventsTool(runtime) {
 }
 
 /**
- * Control-lease tool (`hyprscope control request|status|done|panic --json`).
- * @param runtime Plugin context and settings.
- * @returns Tool definition.
- */
-function createLeaseTool(runtime) {
-  const { settings } = runtime
-  const tool = 'hyprscope_lease'
-  return {
-    name: tool,
-    description:
-      'Manage the hyprscope control lease. request asks the host for control: on the user desktop it shows a consent '
-      + 'card and waits for Allow/Deny, while inside an agent or external desktop the lease is granted programmatically '
-      + 'under the consent recorded at desktop start/attach. status is read-only and safe to poll. done releases control '
-      + 'from the agent side; panic releases it immediately. Control needs an accepted, current capability baseline: if '
-      + 'a call fails with CAPABILITY, run hyprscope_baseline with action "probe", explain the evidence, and let the '
-      + 'host answer the confirmation card the call may show. Never approve a consent card on the host\'s behalf.',
-    parameters: parameters({
-      action: {
-        type: 'string',
-        enum: [...LEASE_ACTIONS],
-        description: 'request asks for control, status reads the lease, done and panic end it.',
-      },
-      reason: {
-        type: 'string',
-        description: 'Why the agent needs control; shown on the consent card. Required for request.',
-      },
-      ttlSeconds: {
-        type: 'integer',
-        description: 'Longest control window after approval in seconds (5..600, default 120). request only.',
-      },
-      consentSeconds: {
-        type: 'integer',
-        description: 'How long the consent card waits in seconds (5..120, default 45). request only.',
-      },
-      language: languageProperty(),
-      ...instanceProperties(),
-    }, ['action']),
-    output: {
-      schema: OUTPUT_SCHEMA,
-      render: (_args, value) => [{ type: 'text', text: clipText(safeStringify(value), settings.maxRenderChars) }],
-    },
-    async execute(args, exec) {
-      const input = readObject(args, tool)
-      const action = readEnum(input.action, LEASE_ACTIONS, 'action', tool)
-      const argv = ['control', action]
-      let timeoutMs = settings.controlTimeoutMs
-      if (action === 'request') {
-        if (input.reason === undefined) throw new Error(`${tool}: reason is required when action is "request"`)
-        const reason = readNonEmptyString(input.reason, 'reason', tool)
-        const ttlSeconds = readOptionalInteger(input.ttlSeconds, 'ttlSeconds', 5, 600, tool) ?? 120
-        const consentSeconds = readOptionalInteger(input.consentSeconds, 'consentSeconds', 5, 120, tool) ?? 45
-        argv.push('--reason', reason, '--ttl', String(ttlSeconds), '--consent', String(consentSeconds))
-        // The card may wait for the whole consent window before the CLI returns.
-        timeoutMs = (consentSeconds + 30) * 1_000
-      }
-      appendLanguage(argv, input, tool)
-      appendInstanceFlags(argv, input, tool)
-      const result = await runCli(runtime, argv, { timeoutMs, signal: exec.signal })
-      assertSuccess(result, argv)
-      return parseJsonStdout(result.stdout, argv)
-    },
-  }
-}
-
-/**
  * Plan validate/run tool (`hyprscope control run <plan.json|-> [--dry-run] --json`).
  * An inline plan is sent on stdin; a planPath is passed through untouched.
  * @param runtime Plugin context and settings.
@@ -565,10 +550,12 @@ function createPlanTool(runtime) {
     description:
       'Validate or run a hyprscope plan. Plans are the only way to change the desktop; every step carries its premises '
       + 'and expectations, and the executor re-checks the lease before each mutation. validate is a dry run: it checks '
-      + 'the target and the accepted baseline, returns a summary, and starts no consent card and no change. run shows '
-      + 'the host\'s consent card on the user desktop (or uses the agent/external desktop\'s programmatic lease) and '
-      + 'returns a run report with the attempts and the fault record. A fault hands the facts back for replanning; never '
-      + 'invent plan kinds or ops the executor does not know, and never accept the card on the host\'s behalf.',
+      + 'the target and the accepted baseline, returns a summary, and starts no consent card and no change. run is the '
+      + 'consent step itself: it shows the host\'s consent card on the user desktop (or uses the agent/external '
+      + 'desktop\'s programmatic consent), blocks until the run ends, and returns a run report with the attempts and '
+      + 'the fault record. There is no separate lease request and no agent-side done/panic. A fault hands the facts back '
+      + 'for replanning; never invent plan kinds or ops the executor does not know, and never accept the card on the '
+      + 'host\'s behalf.',
     parameters: parameters({
       action: {
         type: 'string',
@@ -638,108 +625,6 @@ function createPlanTool(runtime) {
 }
 
 /**
- * Single-action tool: one plan step submitted as a one-step plan on stdin.
- * It is only a wrapper over the plan path (`control run -`), never a separate
- * execution path, so it inherits the same capability gate, validation,
- * executor, lease and rendering as hyprscope_plan run.
- * @param runtime Plugin context and settings.
- * @returns Tool definition.
- */
-function createActTool(runtime) {
-  const { settings } = runtime
-  const tool = 'hyprscope_act'
-  return {
-    name: tool,
-    description:
-      'Take one atomic desktop action by submitting it as a one-step plan. One atomic action is one one-step plan: '
-      + 'each call shows its own consent card (on the user desktop) and acquires its own short lease, and the same '
-      + 'capability baseline gate, plan validation and executor apply as hyprscope_plan run. Steps use the same fields '
-      + 'as a step inside hyprscope_plan (op plus that op\'s fields, including optional requires/expect); the CLI '
-      + 'validates the step, including which ops exist. The result is the same run report as hyprscope_plan run, with '
-      + 'the attempts, fault record and artifacts note. A fault hands the facts back for replanning; never invent ops '
-      + 'the executor does not know, and never accept the card on the host\'s behalf.',
-    parameters: parameters({
-      step: {
-        type: 'object',
-        required: ['op'],
-        additionalProperties: true,
-        properties: {
-          op: {
-            type: 'string',
-            description: 'The plan op to run; the CLI lists the ops it knows and validates the op fields.',
-          },
-        },
-        description: 'One plan step: op plus that op\'s fields (requires/expect are optional); the CLI validates it.',
-      },
-      reason: {
-        type: 'string',
-        minLength: 1,
-        maxLength: REASON_MAX_CHARS,
-        description: 'Why the action is taken (1..200 characters); shown on the consent card.',
-      },
-      planId: {
-        type: 'string',
-        pattern: '^[A-Za-z0-9._-]+$',
-        maxLength: 64,
-        description: 'Plan id recorded in the run artifacts (letters, digits, dot, underscore or hyphen; max 64); '
-          + 'defaults to "act".',
-      },
-      budgetMs: {
-        type: 'integer',
-        minimum: 500,
-        maximum: 30_000,
-        description: 'Total plan budget in ms (500..30000); omitted means the CLI default.',
-      },
-      maxResumes: {
-        type: 'integer',
-        minimum: 0,
-        maximum: 3,
-        description: 'Recovery attempts the run may use (0..3, default 1).',
-      },
-      consentSeconds: {
-        type: 'integer',
-        minimum: 5,
-        maximum: 120,
-        description: 'How long the consent card waits in seconds (5..120, default 45).',
-      },
-      language: languageProperty(),
-    }, ['step', 'reason']),
-    output: {
-      schema: OUTPUT_SCHEMA,
-      // Exactly the hyprscope_plan run projection: same fields and artifacts note.
-      render: (_args, value) => [{
-        type: 'text',
-        text: renderPlan({ action: 'run' }, value, settings.maxRenderChars),
-      }],
-    },
-    async execute(args, exec) {
-      const input = readObject(args, tool)
-      const step = readPlanStep(input.step, tool)
-      const reason = readReason(input.reason, tool)
-      const planId = input.planId === undefined ? ACT_DEFAULT_PLAN_ID : readPlanId(input.planId, tool)
-      const budgetMs = readOptionalInteger(input.budgetMs, 'budgetMs', 500, 30_000, tool)
-      const maxResumes = readOptionalInteger(input.maxResumes, 'maxResumes', 0, 3, tool) ?? 1
-      const consentSeconds = readOptionalInteger(input.consentSeconds, 'consentSeconds', 5, 120, tool) ?? 45
-      const plan = { version: 1, id: planId, reason, steps: [step] }
-      if (budgetMs !== undefined) plan.budgetMs = budgetMs
-      const argv = [
-        'control', 'run', PLAN_STDIN_TARGET,
-        '--consent', String(consentSeconds),
-        '--max-resumes', String(maxResumes),
-      ]
-      appendLanguage(argv, input, tool)
-      const result = await runCli(runtime, argv, {
-        timeoutMs: settings.controlTimeoutMs + (consentSeconds + 20) * 1_000,
-        signal: exec.signal,
-        stdin: JSON.stringify(plan),
-      })
-      assertSuccess(result, argv)
-      return parseJsonStdout(result.stdout, argv)
-    },
-  }
-}
-
-/**
  * Capability-baseline tool (`hyprscope control baseline --show|--probe --json`).
  * `--probe` carries the host's confirmation card when the measurement widens the
  * accepted baseline; the click that answers it is the host's, so the tool only
@@ -759,7 +644,7 @@ function createBaselineTool(runtime) {
       + 'without dispatching or injecting). When the measurement widens the accepted baseline, the same call also '
       + 'shows the host a confirmation card with the verdict, evidence hash and capability counts; the call returns '
       + 'only after the host clicks Allow or Deny, and on deny or expiry the draft stays pending. The tool never '
-      + 'answers that card and never claims the baseline was accepted. A CAPABILITY failure from plan or lease means '
+      + 'answers that card and never claims the baseline was accepted. A CAPABILITY failure from a plan run means '
       + 'the baseline is missing, stale or incomplete.',
     parameters: parameters({
       action: {
@@ -991,35 +876,6 @@ function readDesktopSize(value, tool) {
   return size
 }
 
-/** @returns The plan step object unchanged; only its structure is checked here (the CLI validates the op). */
-function readPlanStep(value, tool) {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error(`${tool}: step must be a plan step object with an op`)
-  }
-  if (typeof value.op !== 'string' || value.op.trim() === '') {
-    throw new Error(`${tool}: step.op must be a non-empty string`)
-  }
-  return value
-}
-
-/** @returns A 1..200 character consent-card reason, or throws. */
-function readReason(value, tool) {
-  const reason = readNonEmptyString(value, 'reason', tool)
-  if (reason.length > REASON_MAX_CHARS) {
-    throw new Error(`${tool}: reason must be at most ${REASON_MAX_CHARS} characters`)
-  }
-  return reason
-}
-
-/** @returns A plan id the CLI accepts, or throws. */
-function readPlanId(value, tool) {
-  const planId = readNonEmptyString(value, 'planId', tool)
-  if (planId.length > 64 || !PLAN_ID_PATTERN.test(planId)) {
-    throw new Error(`${tool}: planId must be at most 64 characters of A-Z, a-z, 0-9, dot, underscore or hyphen`)
-  }
-  return planId
-}
-
 /**
  * Build a fresh default screenshot path below the plugin screenshot directory.
  * @param settings Validated plugin settings.
@@ -1191,10 +1047,25 @@ function parseFailure(stderr) {
   }
 }
 
+/** @param text Failure text to scan. @returns The read-only-state hint, or an empty string. */
+function stateHomeHint(text) {
+  return READ_ONLY_STATE_PATTERN.test(text) ? ` ${STATE_HOME_NEXT_STEP}` : ''
+}
+
+/**
+ * @param text Failure text to scan.
+ * @param code CLI error code, when the envelope carried one.
+ * @returns The usage/unknown-command hint, or an empty string.
+ */
+function usageHint(text, code) {
+  return code === 'USAGE' || USAGE_PATTERN.test(text) ? ` ${DOCTOR_NEXT_STEP}` : ''
+}
+
 /**
  * Map a failed CLI result to an actionable Error. Exit 2 is a usage failure;
  * exit 1 carries a JSON failure envelope on stderr (or plain text for parse
- * failures that happen before JSON output is possible).
+ * failures that happen before JSON output is possible). Every mapped message
+ * keeps the CLI's reason and, when a known cause fits, appends the next step.
  * @param result Spawned result with a non-zero exit code.
  * @param argv CLI arguments (for context).
  * @returns The mapped Error.
@@ -1202,21 +1073,28 @@ function parseFailure(stderr) {
 function failureError(result, argv) {
   const stderr = typeof result.stderr === 'string' ? result.stderr.trim() : ''
   if (result.code === 2) {
-    return new Error(`hyprscope rejected the arguments: ${clipText(stderr, 2_000) || describeCall(argv)}`)
+    const detail = clipText(stderr, 2_000) || describeCall(argv)
+    return new Error(`hyprscope rejected the arguments: ${detail} ${DOCTOR_NEXT_STEP}`)
   }
   const failure = parseFailure(stderr)
   if (failure !== null) return cliFailure(failure)
   const fallback = stderr !== '' ? stderr : safeStringify(result.stdout)
-  return new Error(`hyprscope failed (exit ${result.code}): ${clipText(fallback, 2_000)}`)
+  const scanned = `${stderr} ${safeStringify(result.stdout)}`
+  return new Error(
+    `hyprscope failed (exit ${result.code}): ${clipText(fallback, 2_000)}`
+    + stateHomeHint(scanned) + usageHint(scanned, ''),
+  )
 }
 
 /** @param failure Parsed CLI failure envelope. @returns The mapped Error. */
 function cliFailure(failure) {
   let message = `hyprscope ${failure.code}: ${failure.message}`
+  let detailsText = ''
   if (failure.details !== undefined && failure.details !== null) {
     const details = safeStringify(failure.details)
     if (details !== '{}' && details !== 'null' && details !== '""') {
-      message += ` details: ${clipText(details, 600)}`
+      detailsText = clipText(details, 600)
+      message += ` details: ${detailsText}`
     }
   }
   if (failure.code === 'CAPABILITY') {
@@ -1228,6 +1106,10 @@ function cliFailure(failure) {
     message += ' next step: the session reports locked and screenshots are refused; unlock the session, or pass '
       + 'allowLocked only when the host explicitly asked for a locked capture.'
   }
+  // A read-only state directory or a usage failure can surface under any code
+  // (the CLI wraps filesystem errors as COMMAND_FAILED), so the text decides.
+  const scanned = `${failure.message} ${detailsText}`
+  message += stateHomeHint(scanned) + usageHint(scanned, failure.code)
   return new Error(message)
 }
 

@@ -148,6 +148,8 @@ node bin/hyprscope.ts screenshot --window-app <class> --output "$repo/out/window
 
 Success means the JSON has `source.scope: "window"`, a `source.window` with `identifier`/`appId`/`title`, and the PNG exists. It only works for mapped windows, so pick one that is not minimized. If the helper is missing the command says to run `pnpm run build:capture`; if the compositor does not advertise `ext-image-copy-capture`, `ext-foreign-toplevel-list` and `ext-image-capture-source`, window capture is unavailable while layout, monitor and region captures still work through `grim`.
 
+When `--window-app` or `--window-title` matches more than one window, the command exits 2 and lists each candidate as `0x… address, app id, workspace, title, on active workspace or off-screen`; pass one of those addresses to `--window-id`. An explicit `--output` must be in a directory that already exists and is writable (the default `$XDG_CACHE_HOME/hyprscope` is created as needed); otherwise the command fails with `SCREENSHOT_FAILED` before capturing and tells you to pass `--output <writable path>`.
+
 ## 5. Capability baseline
 
 **A probe is not read-only.** On a machine with an accepted baseline, a re-probe whose measurements only narrow the effective set rewrites `baseline.json` in place (a `narrow` revision) and keeps the old approval, without any card. A probe that adds or upgrades capability evidence writes a pending draft and, in the same run, shows the host the acceptance card and waits for the answer; a denied or expired card leaves the draft pending and another probe asks again. Tell the host which case may occur before you run it.
@@ -216,7 +218,7 @@ If `hyprscope_observe`, `hyprscope_plan`, and the other `hyprscope_*` tools are 
 hyprscope_observe(kind: "doctor")
 ```
 
-That call runs the CLI through the plugin and proves the plugin, Node, and session discovery agree.
+That call runs the CLI through the plugin and proves the plugin, Node, and session discovery agree. The result also carries `pluginVersion` (the bundle's `package.json` version read when the Host loaded it) and `cliPath` (the absolute `bin/hyprscope.ts` it spawns): compare them with the checkout to prove the Host is running the code you edited, not a stale in-memory copy.
 
 Otherwise install the bundle from this checkout. It is a Host-only, Linux-only bundle and links the checkout, so the path must stay valid. First check the profile's Plugins list (or `plugin_manager` list) for `@local/dsh-hyprscope`: if it is already listed but its tools are absent, reload the profile instead of installing a second copy.
 
@@ -225,9 +227,33 @@ Otherwise install the bundle from this checkout. It is a Host-only, Linux-only b
 - Otherwise tell the host to open **Plugins → Add plugin** and enter
   `<absolute repo>/plugins/dsh-hyprscope`.
 
-After installation the profile has eight `hyprscope_*` tools. If they do not appear, reload the plugin or restart DSH; a bundle installed without HMR can report `restart-required`. Then call `hyprscope_observe(kind: "doctor")` again.
+The install is a symlink, not a copy. In the web profile of a development checkout it usually sits at `~/.dsh/profiles/web/node_modules/@local/dsh-hyprscope`, pointing at `<absolute repo>/plugins/dsh-hyprscope`; `$DSH_HOME` may be elsewhere, so read the link instead of assuming the path.
+
+After installation the profile has six `hyprscope_*` tools. If they do not appear, reload the plugin or restart DSH; a bundle installed without HMR can report `restart-required`. Then call `hyprscope_observe(kind: "doctor")` again.
+
+**Restart DSH after editing the plugin.** The Host loads `plugins/dsh-hyprscope/index.js` into its own process and does not watch the file: the running Host keeps the old code and the old tool schemas. Without a restart, a parameter added to a tool definition is absent from the schema and passing it is silently ignored, and `doctor` keeps reporting the old `pluginVersion`. After restarting, call `hyprscope_observe(kind: "doctor")` and check that `pluginVersion` equals the checkout's `plugins/dsh-hyprscope/package.json` version and `cliPath` names the checkout's `bin/hyprscope.ts`; a mismatch means the Host is still on the stale in-memory copy.
 
 If the plugin loads but every call fails naming `projectDir`, set `projectDir` in the profile's `hyprscope` row to this checkout instead of moving the checkout. Do not install DSH itself, and do not change the user's Hyprland configuration for the plugin.
+
+### Capturing a consent card from an agent session
+
+A consent-showing tool call intentionally blocks until the host answers or the card expires: `hyprscope_plan` (`run`) and `hyprscope_baseline` (`probe`) both wait for the human decision. There is no separate lease request tool and no agent-side done/panic. That blocking is the consent contract; never make the tool asynchronous to simplify capture, and never answer the card yourself.
+
+To capture a card, raise it outside the tools as a background job and screenshot with a timed read-only call:
+
+```sh
+# background job (not a tool call): a no-op plan raises the consent card; the run waits for the host
+printf '%s\n' '{"version":1,"id":"card-capture","reason":"card capture","steps":[{"op":"pause","ms":100}]}' > /tmp/hyprscope-card-plan.json
+node bin/hyprscope.ts control run /tmp/hyprscope-card-plan.json --consent 120 --lang en
+```
+
+The background command is the CLI form of the `hyprscope_plan` `run` tool; the tool itself blocks the same way, which is why the capture has to run outside it. Control must already be available: a missing or stale baseline fails with `CAPABILITY` before any card appears, so probe and let the host accept it first. From the agent session, after about a second:
+
+```
+hyprscope_screenshot(scope: "layout", output: "/tmp/hyprscope-card.png")
+```
+
+Screenshots are read-only, so repeat one if the first is early. Have the host answer the card or let it expire, then stop the job; the agent must never approve it. The same recipe captures the baseline probe's acceptance card.
 
 ## 7. Report
 
@@ -260,5 +286,8 @@ Mark anything skipped as skipped. Never report "installed" for a stage that did 
 | Window capture says the helper is not built, or plan/window capture fails with `SCREENSHOT_FAILED` | `bin/wl-capture` was not built this time, or the compositor does not advertise the ext capture protocols | Run `pnpm run build:capture`; if the protocols are missing, report that window capture is unsupported on this compositor and use `grim` captures instead |
 | Plugin calls fail naming `projectDir` | The checkout moved | Set `projectDir` in the profile's hyprscope row; do not move the checkout |
 | New tools are absent after install | The profile needs a reload or restart | Reload the plugin or restart DSH, then re-check `hyprscope_observe` |
+| A plugin edit has no effect, or a new tool parameter is ignored | The Host still has the old bundle in memory; it does not watch `index.js` | Restart DSH, then compare `doctor` `pluginVersion` and `cliPath` with the checkout |
+| A tool error mentions `EROFS` or a read-only state directory | The Host's `XDG_STATE_HOME` is not writable | Point `XDG_STATE_HOME` at a writable directory and restart DSH; the accepted baseline lives in the real state home |
+| A card-showing tool call seems to hang | It is waiting for the host to answer the consent card | Intentional: capture the card with a background CLI job plus a timed screenshot, and never answer it for the host |
 
 For the design behind the baseline, read `docs/BASELINE.md` and `docs/COMPATIBILITY.md`; for the plugin's configuration keys, read `docs/DSH-PLUGIN.md`.

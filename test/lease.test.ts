@@ -1,12 +1,13 @@
 /** Lease state machine, consent flow, holder release, and failsafe helpers. */
 import assert from 'node:assert/strict'
+import { spawn } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { parseKey, keyTaken, luaSource, configBlock, quoteShell, normalizedKey, panicCommand, uninstallBind } from '../src/lease/bind.ts'
-import { parseLeaseArgs } from '../src/lease/cli.ts'
+import { main, parseLeaseArgs } from '../src/lease/cli.ts'
 import {
-  cleanupStaleLease, holdLease, leaseStatus, releaseLease, renewLease, requestLease,
+  cleanupStaleLease, holderEntry, holdLease, leaseStatus, releaseLease, renewLease, requestLease,
   submitDecision, LEASE_RECOVERY_MARGIN_MS,
 } from '../src/lease/control.ts'
 import {
@@ -14,10 +15,25 @@ import {
   readState, writeControl, writeJsonAtomic, writeState,
   type LeaseConfirmCard, type LeasePaths, type LeaseRenewal, type LeaseState,
 } from '../src/lease/state.ts'
-import { removeDir, tempDir, writeScript } from './support.ts'
+import { removeDir, sink, tempDir, writeScript } from './support.ts'
 
 /** @param ms Delay in milliseconds. */
 const delay = (ms: number): Promise<void> => new Promise(resolve => { setTimeout(resolve, ms) })
+
+/**
+ * Poll a condition until it holds.
+ * @param predicate Condition to satisfy.
+ * @param label Description used in the timeout failure.
+ * @param timeoutMs How long to keep polling.
+ */
+async function waitUntil(predicate: () => Promise<boolean>, label: string, timeoutMs = 4_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (await predicate()) return
+    await delay(20)
+  }
+  assert.fail(`timed out waiting for ${label}`)
+}
 
 /**
  * Build an isolated environment for one test.
@@ -557,13 +573,57 @@ test('releaseLease reports NO_LEASE when nothing is held', async (t) => {
   assert.equal(outcome.phase, null)
 })
 
-test('parseLeaseArgs reads request options', () => {
-  const parsed = parseLeaseArgs(['request', '--reason=look', '--ttl', '30', '--consent=10', '--json'])
-  assert.equal(parsed.command, 'request')
-  assert.equal(parsed.options.reason, 'look')
-  assert.equal(parsed.options.ttlSec, 30)
-  assert.equal(parsed.options.consentSec, 10)
-  assert.equal(parsed.options.json, true)
+test('parseLeaseArgs keeps the exposed agent workflow commands', () => {
+  const run = parseLeaseArgs(['run', 'plan.json', '--dry-run', '--consent', '10', '--json'])
+  assert.equal(run.command, 'run')
+  assert.deepEqual(run.args, ['plan.json'])
+  assert.equal(run.options.dryRun, true)
+  assert.equal(run.options.consentSec, 10)
+  assert.equal(run.options.json, true)
+  const status = parseLeaseArgs(['status', '--json'])
+  assert.equal(status.command, 'status')
+  assert.equal(status.options.json, true)
+  const panic = parseLeaseArgs(['panic', '--source', 'shortcut'])
+  assert.equal(panic.command, 'panic')
+  assert.equal(panic.options.source, 'shortcut')
+})
+
+test('control rejects request, done and __hold as unknown commands', async () => {
+  for (const command of ['request', 'done', '__hold']) {
+    const stderr = sink()
+    assert.equal(await main([command], { stdout: sink(), stderr }), 2, command)
+    assert.match(stderr.text, /USAGE/, command)
+    assert.match(stderr.text, /Unknown command/, command)
+  }
+})
+
+test('control help advertises only the exposed commands', async () => {
+  const stdout = sink()
+  assert.equal(await main(['--help'], { stdout, stderr: sink() }), 0)
+  assert.match(stdout.text, /^  status\s/m)
+  assert.match(stdout.text, /^  panic\s/m)
+  assert.doesNotMatch(stdout.text, /__hold/)
+  assert.doesNotMatch(stdout.text, /^  request\s/m)
+  assert.doesNotMatch(stdout.text, /^  done\s/m)
+})
+
+test('the internal holder entry keeps a lease and releases it on a done record', async (t) => {
+  const env = leaseEnv(t)
+  const paths = leasePaths(env)
+  const now = new Date()
+  await seedState(paths, grantedLease(now, { leaseId: 'hold-entry' }))
+  const child = spawn(process.execPath, [holderEntry(), '--lease', 'hold-entry'], { env, stdio: 'ignore' })
+  t.after(() => { child.kill() })
+  try {
+    await waitUntil(async () => (await readState(paths))?.holderPid === child.pid,
+      'the internal holder to record its pid')
+    assert.ok((await readHeartbeat(paths))?.pid === child.pid, 'the holder refreshes the heartbeat')
+    await writeControl(paths, { leaseId: 'hold-entry', action: 'done', at: new Date().toISOString(), source: 'test' })
+    await waitUntil(async () => (await readState(paths))?.phase === 'released',
+      'the internal holder to release the lease')
+  } finally {
+    child.kill()
+  }
 })
 
 test('parseLeaseArgs reads the desktop options', () => {
@@ -580,9 +640,12 @@ test('parseLeaseArgs reads the desktop options', () => {
   assert.equal(parsed.options.signature, 'sig')
 })
 
-test('parseLeaseArgs rejects malformed input', () => {
-  assert.throws(() => parseLeaseArgs(['request', '--ttl', '0']), (error: Error & { code?: string }) => error.code === 'USAGE')
-  assert.throws(() => parseLeaseArgs(['request', '--bogus']), (error: Error & { code?: string }) => error.code === 'USAGE')
+test('parseLeaseArgs rejects malformed input and removed command flags', () => {
+  assert.throws(() => parseLeaseArgs(['run', '--consent', '0']), (error: Error & { code?: string }) => error.code === 'USAGE')
+  assert.throws(() => parseLeaseArgs(['status', '--bogus']), (error: Error & { code?: string }) => error.code === 'USAGE')
+  for (const flag of ['--reason', '--ttl', '--lease']) {
+    assert.throws(() => parseLeaseArgs(['status', flag, 'x']), (error: Error & { code?: string }) => error.code === 'USAGE', flag)
+  }
 })
 
 test('parseKey decodes modifiers and key', () => {

@@ -1,7 +1,7 @@
 /** PNG capture through grim, with geometry validation and image metadata. */
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdir, readFile } from 'node:fs/promises'
+import { access, constants, mkdir, readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
@@ -105,6 +105,54 @@ export function defaultCapturePath(env: NodeJS.ProcessEnv = process.env, now: Da
 }
 
 /**
+ * Build the typed failure for an unusable capture destination.
+ * @param directory Destination directory.
+ * @param path Destination PNG path.
+ * @param reason Why the directory cannot receive the capture.
+ * @returns `SCREENSHOT_FAILED` naming the fix.
+ */
+function outputFailure(directory: string, path: string, reason: string): HyprscopeError {
+  return new HyprscopeError(ErrorCode.SCREENSHOT_FAILED,
+    `Cannot write the capture: ${reason}; pass --output <writable path>`, {
+      directory,
+      output: path,
+      hint: 'Pass --output <path> inside an existing, writable directory',
+    })
+}
+
+/**
+ * Preflight the directory that receives a capture.
+ *
+ * An explicit `--output` must point into a directory that already exists and is
+ * writable; the default cache directory is created first. The check leaves
+ * nothing behind: it uses stat and access only, never a probe file.
+ * @param path Destination PNG path.
+ * @param options `create` creates the default cache directory, never an explicit one.
+ * @throws HyprscopeError when the directory is missing, not a directory, or not writable.
+ */
+export async function preflightCaptureOutput(path: string, options: { create?: boolean } = {}): Promise<void> {
+  const directory = dirname(path)
+  if (options.create === true) {
+    try {
+      await mkdir(directory, { recursive: true })
+    } catch (error) {
+      throw outputFailure(directory, path,
+        `the capture directory could not be created (${error instanceof Error ? error.message : String(error)})`)
+    }
+  }
+  const status = await stat(directory).catch(() => null)
+  if (status === null || !status.isDirectory()) {
+    throw outputFailure(directory, path, 'the capture directory does not exist')
+  }
+  try {
+    await access(directory, constants.W_OK)
+  } catch (error) {
+    throw outputFailure(directory, path,
+      `the capture directory is not writable (${error instanceof Error ? error.message : String(error)})`)
+  }
+}
+
+/**
  * Validate and normalize a `x,y,width,height` region.
  * @param text Region in global layout coordinates.
  * @returns Parsed region.
@@ -144,13 +192,8 @@ export async function capture(session: Session, options: CaptureOptions = {}): P
     })
   }
   const capturedAt = (options.now ?? new Date()).toISOString()
-  let path = options.output
-  if (path === undefined) {
-    path = defaultCapturePath(env, options.now ?? new Date())
-    await mkdir(dirname(path), { recursive: true })
-  } else {
-    await mkdir(dirname(path), { recursive: true })
-  }
+  const path = options.output ?? defaultCapturePath(env, options.now ?? new Date())
+  await preflightCaptureOutput(path, { create: options.output === undefined })
   const args: string[] = []
   if (options.monitor !== undefined) args.push('-o', options.monitor)
   if (options.region !== undefined) {

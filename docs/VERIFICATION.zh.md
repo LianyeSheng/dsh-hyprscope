@@ -228,6 +228,68 @@ DSH 组合包换成了项目自己的名字，插件页的条目也开始说清�
 
 未验证：插件页和设置页在浏览器里怎么画这个新图标和本地化文字，这个会话没有浏览器控制；图标只在 DSH 之外用 `rsvg-convert` 渲染，在行内尺寸和卡片尺寸、浅色和深色背景上看过。
 
+## 语言、离屏截图与 doctor（2026-11-18）
+
+双语同意卡、插件的语言映射、离屏窗口截图和新的 doctor 检查都在同一台测试机上于 2026-11-18 验证：Hyprland 0.57.2，`wayland-1`，活动工作区 2，工作区 1 上有一个 `foot` 窗口，工作区 4 上还有一个 `foot` 窗口。
+
+**CLI 双语同意卡。** 演示计划只是移动两次指针再暂停，所以批准也碰不到任何窗口；原因是 `demonstrate the bilingual consent card`。中文卡和英文卡来自同一条命令，只改语言选项：
+
+```bash
+node bin/hyprscope.ts control run .tmp/lang-demo-plan.json --lang zh
+node bin/hyprscope.ts control run .tmp/lang-demo-plan.json --lang en
+```
+
+- `--lang zh` 渲染中文卡：标题 `Agent 请求执行计划`、原因、`计划 lang-demo：move the pointer twice, then pause; nothing is clicked`、`共 3 步 · 预算 8 秒`、每步一行、`拒绝` / `允许操控` 和倒计时。
+- `--lang en` 渲染英文卡：标题 `Agent requests to run a plan`、同样的原因、`Plan lang-demo: move the pointer twice, then pause; nothing is clicked`、`3 steps · budget 8 s`、每步一行、`Deny` / `Allow control` 和倒计时。
+- 等待中的 `state.json` 原样带着这张卡——标题、行、`acceptLabel: "允许操控"`、`denyLabel: "拒绝"`——宿主点了允许之后它记下 `grantedBy: "overlay"`；租约以 `released` 结束，`planBound: true`、`ttlMs: 28000`，运行就在这次同意下完成。
+- 这次点击让等待中的调用继续，没有另起 CLI 进程：浮层自己写答案文件，等待的工具读到决定后继续。
+- 三次演示运行都以 3 步完成，耗时 324–332 ms（`out/runs/20261118T153417-2c3f0d`、`…-73dc5f`、`…-b52d83`）；上面引用的记录来自 `…-b52d83` 的 `state.json`。
+
+**DSH 插件语言映射。** 计划工具用插件自己的 handler、以 `language: "en"` 驱动：
+
+```bash
+node .tmp/dsh-plugin-driver.mjs
+```
+
+驱动脚本调用 `execute({ action: "run", planPath: ".tmp/lang-demo-plan.json", language: "en", consentSeconds: 60 })`；插件把语言映射成生成 CLI 上的 `--lang en`，卡片用英文渲染（`Agent requests to run a plan`、`Deny` / `Allow control`），调用返回 `RESULT {"runId":"20261118T153952-35bd94","status":"completed","steps":3,"fault":null}`。同一张卡期间又做了一次定时运行（`out/runs/20261118T154048-2abedb`），同样 3/3 完成，耗时 334 ms。
+
+**离屏窗口截图。** 工作区 2 处于活动状态时，`--window-id` 截取了工作区 1 上映射中的 `foot` 窗口，以及工作区 4 上的另一个：
+
+```bash
+node bin/hyprscope.ts screenshot --window-id 0x560360f3c380 --output .tmp/verify-window-ws1.png --json
+node bin/hyprscope.ts screenshot --window-id 0x56035f695030 --output .tmp/verify-window-ws4.png --json
+```
+
+工作区 1 的截图是 2448×1378，`source.scope: "window"`，`window {identifier: "180002d9", appId: "foot", title: "~/w/dsh-hyprscope"}`；工作区 4 的截图是 1228×1398，`window {identifier: "180001c6", appId: "foot", title: "rclone mount OneDriv ~"}`。Hyprland 地址经 `hyprctl clients` 转成 foreign-toplevel id，每张 PNG 用的是窗口自己的尺寸，而不是 2560×1440 的输出尺寸。
+
+**新的 doctor 检查。** `doctor` 现在报告一个 `environment` 块和一条 `capture.window` 限制；两者都是对既有字段的追加：
+
+```bash
+node bin/hyprscope.ts doctor
+node bin/hyprscope.ts doctor --json
+```
+
+- 浮层运行时：`quickshell at /usr/bin/quickshell (default)`——这是 PATH 查找，遵循 `HYPRSCOPE_QUICKSHELL`；doctor 从不启动浮层或该二进制。
+- 状态目录：`/home/jw/.local/state/hyprscope (exists, not writable)`，`state hint` 写着 `EROFS: read-only file system`。这是本 agent 的文件沙箱，不是宿主：用新的 `XDG_STATE_HOME=$PWD/.tmp/state-probe` 再跑一次，报告 `exists: false, writable: true, probe: …/.tmp/state-probe`，之后目录仍然是空的，说明检查不创建任何东西。
+- `capture.window`：窗口截图对非活动工作区上或离屏的已映射窗口同样有效，PNG 用的是窗口尺寸而不是输出尺寸。
+- 截图预检：显式 `--output` 必须指向一个已存在且可写的目录。缺失的目录和 `chmod 500` 的目录都以退出码 1 失败，报 `SCREENSHOT_FAILED: Cannot write the capture: …; pass --output <writable path>`；而 `XDG_CACHE_HOME=$PWD/.tmp/cache node bin/hyprscope.ts screenshot` 仍然创建默认的 `hyprscope` 缓存目录，并写下一张 2560×1440 的布局截图。
+
+本轮自动检查：`node --test test/doctor.test.ts test/screenshot.test.ts test/cli.test.ts test/live.test.ts` 通过 50 个测试（11 + 17 + 14 + 8）；新增的 live 测试从运行中的合成器读取 doctor 的 `environment` 块，既有的 live 窗口截图测试截取了一个离屏窗口。本对文档已用双语配对门禁重新记录。
+
+## 歧义窗口选择器与显式截图输出（2026-11-18）
+
+当时开着两个 `foot` 窗口，一个在工作区 1、一个在工作区 4，活动工作区是 2。`--window-app foot` 现在会把歧义拒绝掉，每个候选一行稳定的说明，而不是只给一个数量：
+
+```bash
+node bin/hyprscope.ts screenshot --window-app foot --output .tmp/ambiguous.png
+```
+
+命令以退出码 2 结束，报 `USAGE: 2 windows match this application id; use --window-id to pick one:`，随后按工作区、再按地址排序列出候选：工作区 1 的 `0x560360f3c380` `foot` `title "~/w/dsh-hyprscope"`，工作区 4 的 `0x56035f695030` `foot` `title "rclone mount OneDriv ~"`；因为活动工作区是 2，两者都标成 `off-screen`。`--json` 在 `details.candidates` 里带同样的有序列表，外加 `details.hint`；`--window-title` 的重名窗口走同一条路径（两个真实 `foot` 标题不同，所以用假合成器做了单元测试）。
+
+显式 `--output` 指向不存在的目录时，现在会在截图 helper 运行之前失败：`captureToplevel()` 复用 `capture()` 的同一个 `SCREENSHOT_FAILED` 预检，因此 `--window-id 180002d9 --output .tmp/no-dir/window.png` 以退出码 1 结束，报 `Cannot write the capture: the capture directory does not exist; pass --output <writable path>`，并且没有创建目录。布局截图的默认 `$XDG_CACHE_HOME/hyprscope` 路径仍然会被创建。
+
+本轮自动检查：`node --test test/window-selector.test.ts test/toplevel.test.ts test/screenshot.test.ts test/cli.test.ts test/live.test.ts` 通过 53 个测试（6 + 8 + 17 + 14 + 8），`pnpm run typecheck` 干净。本对文档已用双语配对门禁重新记录。
+
 ## 没有覆盖到的
 
 多显示器、多 Hyprland 实例、多 seat、锁屏状态下的行为，这份记录里都没有实测条目，也没做跨版本对比；租约的物理输入拦截能力本来就不存在（见 [LEASE.zh.md](/docs/LEASE.zh.md)）。要下结论得在对应环境里再跑。

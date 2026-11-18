@@ -90,6 +90,28 @@ test('live: the Wayland probe reports one seat and injection protocols', { skip 
   assert.equal(probe.capabilities.virtualPointer, true)
 })
 
+test('live: doctor reports overlay runtime, state directory and window-capture semantics', { skip }, async () => {
+  const stdout = sink()
+  const code = await main(['doctor', '--json'], { stdout, stderr: sink() })
+  assert.equal(code, 0)
+  const report = JSON.parse(stdout.text) as {
+    readOnly: boolean
+    environment: {
+      overlay: { binary: string; available: boolean; source: string; hint: string | null }
+      state: { path: string; writable: boolean | null }
+      capture: { window: string }
+    }
+    limitations: string[]
+  }
+  assert.equal(report.readOnly, true)
+  assert.equal(report.environment.overlay.binary, process.env.HYPRSCOPE_QUICKSHELL || 'quickshell')
+  assert.equal(typeof report.environment.overlay.available, 'boolean')
+  assert.ok(report.environment.state.path.endsWith('/hyprscope'))
+  assert.ok(report.environment.state.writable === null || typeof report.environment.state.writable === 'boolean')
+  assert.match(report.environment.capture.window, /inactive workspace or off-screen/)
+  assert.ok(report.limitations.some(line => line.startsWith('capture.window:')))
+})
+
 test('live: CLI state --json round-trips through stdout', { skip }, async () => {
   const stdout = sink()
   const code = await main(['state', '--json'], { stdout, stderr: sink() })

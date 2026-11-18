@@ -15,20 +15,20 @@
   en: 1f720e46717dfacf
   zh: b842fc9b0aaba318
 /observation-and-capability-contract/2-coordinates-and-scaling/2-1-screenshot-record:
-  en: 15a51db3d314c7c6
-  zh: defb01febf0617ed
+  en: cac8f07566f29edf
+  zh: 62c76a549cc669f3
 /observation-and-capability-contract/3-event-stream:
   en: f09b23f1b4d0148a
   zh: 5fcaad24efd51857
 /observation-and-capability-contract/4-error-codes:
-  en: 17cc36c6dd883733
-  zh: 2887dc4d22d095b8
+  en: ce94140961eb7b9f
+  zh: e05d16e75ca3f732
 /observation-and-capability-contract/5-capability-report:
-  en: a4c7d6929f2b913a
-  zh: 942e496be32306a4
+  en: 492eeb2c09c6f57c
+  zh: 23fbbf662a8d696f
 /observation-and-capability-contract/5-capability-report/5-1-capability-baseline:
-  en: d56b10df8f0968e0
-  zh: 2af21db642028a3d
+  en: c536cc7537409c70
+  zh: c8fb24fe4bfd55eb
 /observation-and-capability-contract/6-mapping-to-dsh-cua:
   en: e12bb4c34418fb37
   zh: c80f7e8a086e501d
@@ -39,11 +39,11 @@
   en: c924fc3fa8f3f6dd
   zh: fe1d5c9754978018
 /observation-and-capability-contract/8-control-lease-hyprscope-control/lease-record:
-  en: a596d9d54f05835e
-  zh: dbef6934e32e246c
+  en: f4a10ad752a11edb
+  zh: 6587f9970555e9ea
 /observation-and-capability-contract/8-control-lease-hyprscope-control/invariants:
-  en: ec52f98ac4f7a813
-  zh: 0808134abbb68bdc
+  en: d6d9e890d5473be4
+  zh: 59d5d1ac0b426afa
 /observation-and-capability-contract/8-control-lease-hyprscope-control/failsafe-shortcut:
   en: 63279c8869657d5c
   zh: ab7d7b3d0cd6041d

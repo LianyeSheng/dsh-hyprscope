@@ -7,9 +7,9 @@
  */
 import { ErrorCode, HyprscopeError } from '../errors.ts'
 import {
-  isAbsolutePoint, isAnchorPoint, OP_SPECS, PLAN_LIMITS, PREDICATE_SPECS,
+  isAbsolutePoint, isAnchorPoint, OP_FIELDS, OP_SPECS, PLAN_LIMITS, planTextString, PREDICATE_SPECS,
   type AnchorPoint, type AnchorRect, type AbsolutePoint, type EventKind, type Plan, type PlanLineage,
-  type PlanStep, type Predicate, type PredicateKind, type StepOp, type WindowTarget,
+  type PlanStep, type PlanText, type Predicate, type PredicateKind, type StepOp, type WindowTarget,
 } from './model.ts'
 
 /** One schema violation, located by a JSON path. */
@@ -49,23 +49,212 @@ const PREDICATE_FIELDS: Readonly<Record<PredicateKind, readonly string[]>> = {
   'region.changed': ['kind', 'target', 'rect'],
 }
 
-/** Fields each step op may carry. */
-const STEP_FIELDS: Readonly<Record<StepOp, readonly string[]>> = {
-  movePointer: ['op', 'at', 'requires', 'expect'],
-  click: ['op', 'at', 'button', 'count', 'requires', 'expect'],
-  scroll: ['op', 'value', 'axis', 'requires', 'expect'],
-  chord: ['op', 'keys', 'requires', 'expect'],
-  text: ['op', 'text', 'requires', 'expect'],
-  focusWindow: ['op', 'target', 'requires', 'expect'],
-  workspace: ['op', 'name', 'requires', 'expect'],
-  moveWindow: ['op', 'target', 'x', 'y', 'requires', 'expect'],
-  resizeWindow: ['op', 'target', 'width', 'height', 'requires', 'expect'],
-  floatWindow: ['op', 'target', 'floating', 'pinned', 'requires', 'expect'],
-  fullscreenWindow: ['op', 'target', 'internal', 'client', 'requires', 'expect'],
-  screenshot: ['op', 'label', 'region', 'window', 'requires', 'expect'],
-  pause: ['op', 'ms', 'requires', 'expect'],
-  assert: ['op', 'requires', 'expect'],
-  waitEvent: ['op', 'kind', 'timeoutMs', 'requires', 'expect'],
+/** Fields each step op may carry, derived from the field catalog the CLI prints. */
+const STEP_FIELDS: Readonly<Record<StepOp, readonly string[]>> = Object.fromEntries(
+  (Object.keys(OP_FIELDS) as StepOp[]).map(op => [op, ['op', ...OP_FIELDS[op].map(field => field.name)]]),
+) as unknown as Readonly<Record<StepOp, readonly string[]>>
+
+/**
+ * One example per allowed field, used to make an unknown-field failure
+ * actionable: the message names the closest allowed field and shows its shape.
+ */
+interface ShapeHint {
+  /** What the enclosing value is, e.g. `movePointer` or `a window target`. */
+  subject: string
+  /** Rendered JSON member per allowed field. */
+  examples: Readonly<Record<string, string>>
+  /** Shape-naming fields that are only suggested when they are clearly closest. */
+  generic?: readonly string[]
+}
+
+const WINDOW_TARGET_HINT: ShapeHint = {
+  subject: 'a window target',
+  examples: { id: '"id": "0x55a1"', app: '"app": "foot"', title: '"title": "demo"' },
+}
+
+const ANCHORED_POINT_HINT: ShapeHint = {
+  subject: 'an anchored pointer destination',
+  examples: { window: '"window": {"app": "foot"}', point: '"point": [0.5, 0.5]' },
+}
+
+const ABSOLUTE_POINT_HINT: ShapeHint = {
+  subject: 'an absolute pointer position',
+  examples: { x: '"x": 400', y: '"y": 300' },
+}
+
+const REGION_HINT: ShapeHint = {
+  subject: 'a capture region',
+  examples: {
+    window: '"window": {"app": "foot"}',
+    rect: '"rect": [0, 0, 1, 1]',
+  },
+}
+
+const LOCALIZED_TEXT_HINT: ShapeHint = {
+  subject: 'localized text',
+  examples: { zh: '"zh": "..."', en: '"en": "..."' },
+}
+
+const LINEAGE_HINT: ShapeHint = {
+  subject: 'a plan lineage',
+  examples: {
+    rootPlanId: '"rootPlanId": "plan"',
+    attempt: '"attempt": 1',
+    interruptedAtStep: '"interruptedAtStep": 0',
+    broken: '"broken": ["window.focused"]',
+  },
+}
+
+const PLAN_HINT: ShapeHint = {
+  subject: 'a plan',
+  examples: {
+    version: '"version": 1',
+    id: '"id": "plan"',
+    reason: '"reason": "type one line into the terminal"',
+    summary: '"summary": "focus, click, type, capture"',
+    workspace: '"workspace": "2"',
+    budgetMs: '"budgetMs": 8000',
+    settleMs: '"settleMs": 600',
+    interferencePromptMs: '"interferencePromptMs": 12000',
+    steps: '"steps": [{"op": "assert"}]',
+    lineage: '"lineage": {"rootPlanId": "plan", "attempt": 1, "interruptedAtStep": 0, "broken": ["window.focused"]}',
+  },
+}
+
+/**
+ * Build one predicate hint: the subject is the kind name and `kind` is generic.
+ * @param kind Predicate kind.
+ * @param examples Example member per allowed field.
+ * @returns Hint used when the predicate object carries an unknown field.
+ */
+function predicateHint(kind: PredicateKind, examples: Record<string, string>): ShapeHint {
+  return { subject: kind, examples, generic: ['kind'] }
+}
+
+/** Example member per allowed predicate field, for every catalog kind. */
+const PREDICATE_HINTS: Readonly<Record<PredicateKind, ShapeHint>> = {
+  'lease.valid': predicateHint('lease.valid', { kind: '"kind": "lease.valid"' }),
+  'time.budget': predicateHint('time.budget', { kind: '"kind": "time.budget"' }),
+  'no.foreign_event': predicateHint('no.foreign_event', { kind: '"kind": "no.foreign_event"' }),
+  'window.exists': predicateHint('window.exists', {
+    kind: '"kind": "window.exists"',
+    target: '"target": {"app": "foot"}',
+  }),
+  'window.focused': predicateHint('window.focused', {
+    kind: '"kind": "window.focused"',
+    target: '"target": {"app": "foot"}',
+  }),
+  'window.geometry': predicateHint('window.geometry', {
+    kind: '"kind": "window.geometry"',
+    target: '"target": {"app": "foot"}',
+    x: '"x": 100',
+    y: '"y": 100',
+    width: '"width": 800',
+    height: '"height": 600',
+    tol: '"tol": 2',
+  }),
+  'window.state': predicateHint('window.state', {
+    kind: '"kind": "window.state"',
+    target: '"target": {"app": "foot"}',
+    floating: '"floating": true',
+    pinned: '"pinned": false',
+    fullscreen: '"fullscreen": 1',
+    fullscreenClient: '"fullscreenClient": 0',
+  }),
+  'workspace.active': predicateHint('workspace.active', {
+    kind: '"kind": "workspace.active"',
+    name: '"name": "2"',
+  }),
+  'monitor.config': predicateHint('monitor.config', {
+    kind: '"kind": "monitor.config"',
+    name: '"name": "DP-1"',
+    width: '"width": 2560',
+    height: '"height": 1440',
+    scale: '"scale": 1',
+  }),
+  'clients.set': predicateHint('clients.set', {
+    kind: '"kind": "clients.set"',
+    ids: '"ids": ["0x55a1"]',
+  }),
+  'pointer.position': predicateHint('pointer.position', {
+    kind: '"kind": "pointer.position"',
+    target: '"target": {"app": "foot"}',
+    point: '"point": [0.5, 0.5]',
+    x: '"x": 400',
+    y: '"y": 300',
+    tol: '"tol": 2',
+  }),
+  'region.unchanged': predicateHint('region.unchanged', {
+    kind: '"kind": "region.unchanged"',
+    target: '"target": {"app": "foot"}',
+    rect: '"rect": [0, 0, 1, 1]',
+    label: '"label": "panel"',
+  }),
+  'region.changed': predicateHint('region.changed', {
+    kind: '"kind": "region.changed"',
+    target: '"target": {"app": "foot"}',
+    rect: '"rect": [0, 0, 1, 1]',
+  }),
+}
+
+/**
+ * Build the hint for one step op: every field it accepts, plus the two clauses.
+ * @param op Operation being validated.
+ * @returns Hint used when the step carries an unknown field.
+ */
+function stepHint(op: StepOp): ShapeHint {
+  const examples: Record<string, string> = { op: '"op": "' + op + '"' }
+  for (const field of OP_FIELDS[op]) examples[field.name] = field.example
+  return { subject: op, examples, generic: ['op', 'requires', 'expect'] }
+}
+
+/**
+ * Levenshtein edit distance between two short field names.
+ * @param left First string.
+ * @param right Second string.
+ * @returns Number of single-character insertions, deletions, or substitutions.
+ */
+function editDistance(left: string, right: string): number {
+  const previous = Array.from({ length: right.length + 1 }, (_unused, index) => index)
+  for (let row = 1; row <= left.length; row += 1) {
+    let diagonal = previous[0]!
+    previous[0] = row
+    for (let column = 1; column <= right.length; column += 1) {
+      const above = previous[column]!
+      const cost = left[row - 1] === right[column - 1] ? 0 : 1
+      previous[column] = Math.min(previous[column - 1]! + 1, above + 1, diagonal + cost)
+      diagonal = above
+    }
+  }
+  return previous[right.length]!
+}
+
+/**
+ * Pick the allowed field that best explains an unknown one.
+ * A parameter field wins over a shape-naming field unless the shape-naming
+ * field is at least two edits closer, so a stray top-level `x` on movePointer
+ * is explained by `at` rather than by `op`, while a `require` typo is still
+ * explained by `requires`.
+ * @param unknown Unknown field name.
+ * @param allowed Fields the shape accepts.
+ * @param hint Examples and generic fields for that shape.
+ * @returns Best field, or null when no allowed field has an example.
+ */
+function closestField(unknown: string, allowed: readonly string[], hint: ShapeHint): string | null {
+  const generic = hint.generic ?? []
+  const candidates = allowed.flatMap((field, index) => hint.examples[field] === undefined
+    ? []
+    : [{ field, index, distance: editDistance(unknown, field), generic: generic.includes(field) }])
+  candidates.sort((left, right) => left.distance - right.distance
+    || Number(left.generic) - Number(right.generic)
+    || left.index - right.index)
+  const specific = candidates.find(candidate => !candidate.generic)
+  const shapeField = candidates[0]
+  if (specific === undefined) return shapeField?.field ?? null
+  if (shapeField !== undefined && shapeField.generic && shapeField.distance + 1 < specific.distance) {
+    return shapeField.field
+  }
+  return specific.field
 }
 
 /** Address format Hyprland uses for window ids. */
@@ -85,20 +274,26 @@ class Validator {
   }
 
   /**
-   * Accept an object and reject unknown fields.
+   * Accept an object and reject unknown fields with an actionable hint.
    * @param value Candidate value.
    * @param path JSON path.
    * @param allowed Fields this shape permits.
+   * @param hint Subject and example member per allowed field.
    * @returns The record, or null after recording a failure.
    */
-  record(value: unknown, path: string, allowed: readonly string[]): Record<string, unknown> | null {
+  record(value: unknown, path: string, allowed: readonly string[], hint: ShapeHint): Record<string, unknown> | null {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
       this.fail(path, 'expected an object')
       return null
     }
     const record = value as Record<string, unknown>
     for (const key of Object.keys(record)) {
-      if (!allowed.includes(key)) this.fail(`${path}.${key}`, `unknown field "${key}"`)
+      if (allowed.includes(key)) continue
+      const closest = closestField(key, allowed, hint)
+      const example = closest === null ? undefined : hint.examples[closest]
+      this.fail(`${path}.${key}`, example === undefined
+        ? `unknown field "${key}"`
+        : `unknown field "${key}"; ${hint.subject} takes ${example}`)
     }
     return record
   }
@@ -124,6 +319,40 @@ class Validator {
       this.fail(path, `does not match ${String(bounds.pattern)}`)
     }
     return value
+  }
+
+  /**
+   * Read authored human text: a plain string, or per-language variants.
+   * @param value Candidate value.
+   * @param path JSON path.
+   * @param bounds Length bounds applied to every language variant.
+   * @returns The text, or null when absent or invalid.
+   */
+  localizedText(
+    value: unknown, path: string, bounds: { min?: number; max?: number; pattern?: RegExp } = {},
+  ): PlanText | null {
+    if (value === undefined) return null
+    if (typeof value === 'string') return this.string(value, path, bounds)
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      this.fail(path, 'expected a string or {"zh": "...", "en": "..."}')
+      return null
+    }
+    const record = this.record(value, path, ['zh', 'en'], LOCALIZED_TEXT_HINT)
+    if (record === null) return null
+    const text: { zh?: string; en?: string } = {}
+    let present = 0
+    for (const lang of ['zh', 'en'] as const) {
+      if (record[lang] === undefined) continue
+      const entry = this.string(record[lang], `${path}.${lang}`, bounds)
+      if (entry === null) continue
+      text[lang] = entry
+      present += 1
+    }
+    if (present === 0) {
+      this.fail(path, 'expected at least one of "zh" or "en"')
+      return null
+    }
+    return text
   }
 
   /**
@@ -204,7 +433,7 @@ class Validator {
    */
   windowTarget(value: unknown, path: string): WindowTarget | null {
     if (value === undefined) return null
-    const record = this.record(value, path, ['id', 'app', 'title'])
+    const record = this.record(value, path, ['id', 'app', 'title'], WINDOW_TARGET_HINT)
     if (record === null) return null
     const target: WindowTarget = {}
     const id = this.string(record.id, `${path}.id`, { max: 32, pattern: ADDRESS })
@@ -272,7 +501,7 @@ class Validator {
   point(value: unknown, path: string): AnchorPoint | AbsolutePoint | null {
     if (value === undefined) return null
     if (isAnchorPoint(value)) {
-      const record = this.record(value, path, ['window', 'point'])
+      const record = this.record(value, path, ['window', 'point'], ANCHORED_POINT_HINT)
       if (record === null) return null
       const window = this.windowTarget(record.window, `${path}.window`)
       const point = this.unitPoint(record.point, `${path}.point`)
@@ -280,8 +509,10 @@ class Validator {
       return { window, point }
     }
     if (isAbsolutePoint(value)) {
-      const x = this.integer((value as AbsolutePoint).x, `${path}.x`, { min: -100_000, max: 100_000 })
-      const y = this.integer((value as AbsolutePoint).y, `${path}.y`, { min: -100_000, max: 100_000 })
+      const record = this.record(value, path, ['x', 'y'], ABSOLUTE_POINT_HINT)
+      if (record === null) return null
+      const x = this.integer(record.x, `${path}.x`, { min: -100_000, max: 100_000 })
+      const y = this.integer(record.y, `${path}.y`, { min: -100_000, max: 100_000 })
       if (x === null || y === null) return null
       return { x, y }
     }
@@ -297,7 +528,7 @@ class Validator {
    */
   anchorRect(value: unknown, path: string): AnchorRect | null {
     if (value === undefined) return null
-    const record = this.record(value, path, ['window', 'rect'])
+    const record = this.record(value, path, ['window', 'rect'], REGION_HINT)
     if (record === null) return null
     const window = this.windowTarget(record.window, `${path}.window`)
     const rect = this.unitRect(record.rect, `${path}.rect`)
@@ -331,7 +562,7 @@ class Validator {
       this.fail(path, `"${kind}" is not allowed in ${phase}`)
       return null
     }
-    const record = this.record(value, path, PREDICATE_FIELDS[kind as PredicateKind])
+    const record = this.record(value, path, PREDICATE_FIELDS[kind as PredicateKind], PREDICATE_HINTS[kind as PredicateKind])
     if (record === null) return null
     const predicate: Predicate = { kind: kind as PredicateKind }
     const target = this.windowTarget(record.target, `${path}.target`)
@@ -499,7 +730,7 @@ class Validator {
     }
     const op = opValue as StepOp
     const spec = OP_SPECS[op]
-    const record = this.record(value, path, STEP_FIELDS[op])
+    const record = this.record(value, path, STEP_FIELDS[op], stepHint(op))
     if (record === null) return { op, requires: [] }
     const step: PlanStep = { op }
     const requires = this.predicates(record.requires, `${path}.requires`, 'requires')
@@ -675,7 +906,7 @@ class Validator {
    * @returns Lineage, or undefined when invalid.
    */
   lineage(value: unknown): PlanLineage | undefined {
-    const record = this.record(value, '$.lineage', ['rootPlanId', 'attempt', 'interruptedAtStep', 'broken'])
+    const record = this.record(value, '$.lineage', ['rootPlanId', 'attempt', 'interruptedAtStep', 'broken'], LINEAGE_HINT)
     if (record === null) return undefined
     const rootPlanId = this.string(record.rootPlanId, '$.lineage.rootPlanId', { min: 1, max: 64, pattern: /^[A-Za-z0-9._-]+$/ })
     const attempt = this.integer(record.attempt, '$.lineage.attempt', { min: 1, max: PLAN_LIMITS.maxResumes })
@@ -705,15 +936,19 @@ export function validatePlan(input: unknown, options: ValidateOptions = {}): Pla
   const validator = new Validator()
   const root = validator.record(input, '$', [
     'version', 'id', 'reason', 'summary', 'workspace', 'budgetMs', 'settleMs', 'interferencePromptMs', 'steps', 'lineage',
-  ])
+  ], PLAN_HINT)
   if (root === null) throw new PlanValidationError(validator.issues)
   if (root.version !== 1) validator.fail('$.version', 'expected 1')
-  const reason = validator.string(root.reason, '$.reason', { min: 1, max: 200 })
-  if (reason === null) validator.fail('$.reason', 'required')
+  // reason and summary accept either one string (the original shape) or
+  // per-language variants; validation bounds every variant separately.
+  const reason = validator.localizedText(root.reason, '$.reason', { min: 1, max: 200 })
+  if (root.reason === undefined) validator.fail('$.reason', 'required')
   const id = validator.string(root.id, '$.id', { max: 64, pattern: /^[A-Za-z0-9._-]+$/ })
   // An explicit null is the same as an absent optional field; the derived
   // recovery plans preserve the original document's omission this way.
-  const summary = root.summary === null ? null : validator.string(root.summary, '$.summary', { max: 200 })
+  const summary = root.summary === null || root.summary === undefined
+    ? null
+    : validator.localizedText(root.summary, '$.summary', { max: 200 })
   const workspace = root.workspace === null ? null : validator.string(root.workspace, '$.workspace', { min: 1, max: 32, pattern: /^[A-Za-z0-9._-]+$/ })
   const budgetMs = validator.integer(root.budgetMs, '$.budgetMs', {
     min: PLAN_LIMITS.minBudgetMs, max: PLAN_LIMITS.maxBudgetMs, fallback: PLAN_LIMITS.defaultBudgetMs,
@@ -788,10 +1023,12 @@ export interface PlanSummary {
 export function summarizePlan(plan: Plan): PlanSummary {
   const seen = new Set<string>()
   for (const step of plan.steps) seen.add(step.op)
+  // The receipt keeps a string: a localized summary resolves to English first,
+  // then Chinese, so a consumer never has to understand the authored shape.
   return {
     steps: plan.steps.length,
     ops: [...seen],
     workspace: plan.workspace,
-    summary: plan.summary,
+    summary: plan.summary === null ? null : planTextString(plan.summary),
   }
 }

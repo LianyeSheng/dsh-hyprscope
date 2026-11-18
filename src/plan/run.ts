@@ -35,7 +35,7 @@ import {
   executePlan, type ExecutionOutcome, type FaultRecord, type InterferenceRequest, type RunResult, type SuspendRecord,
 } from './executor.ts'
 import { assertPlanGrant, requirePlanGrant, type PlanGrant } from './leasegate.ts'
-import { PLAN_LIMITS, type Plan } from './model.ts'
+import { PLAN_LIMITS, planTextString, type Plan } from './model.ts'
 import { describePlanCard } from './card.ts'
 import { deriveResumePlan, synthesizeRestoreSteps } from './recover.ts'
 import { RunStore } from './runstore.ts'
@@ -392,7 +392,9 @@ export async function runPlanFile(options: RunPlanOptions): Promise<RunReport> {
   /** Time the lease holds for one attempt: its plan budget plus one prompt margin. */
   const attemptTtlMs = (plan: Plan): number => plan.budgetMs + LEASE_RECOVERY_MARGIN_MS
   const request = {
-    reason: rootPlan.reason,
+    // The lease record keeps the reason as one string, resolved English first,
+    // then Chinese; the consent card carries its own per-language rendering.
+    reason: planTextString(rootPlan.reason),
     planBound: true,
     planSummary: summary,
     // The card shows what the host is approving: the plan's description and its

@@ -65,19 +65,36 @@ error), while CLI stdout stays English. `id`, `summary`, `workspace` and
 `interferencePromptMs` are optional; everything else has a default, and the
 defaults are applied once, when the document is validated.
 
+`reason` and `summary` also accept per-language objects instead of one string:
+
+```json
+{
+  "reason": { "zh": "在终端输入一行并截图", "en": "Type one line and capture it" },
+  "summary": { "zh": "聚焦、点击、输入、截图", "en": "focus, click, type, capture" }
+}
+```
+
+An object may carry `zh`, `en`, or both, and each variant obeys the same length
+rule as the plain string. The card renders the variant for `--lang` and falls
+back to the other one when a variant is missing; the lease `planSummary`, the
+dry-run report and a derived recovery plan keep one string, resolved English
+first and then Chinese. An empty object, a non-string variant, an unknown
+language key or a malformed value is rejected as `PLAN_INVALID` with the
+offending path, and a plain string keeps working unchanged.
+
 | field | rule |
 |---|---|
 | `version` | exactly `1` |
 | `id` | `[A-Za-z0-9._-]{1,64}`, default `plan` |
-| `reason` | required, 1–200 characters |
-| `summary` | optional free text, at most 200 characters; informational only |
+| `reason` | required, 1–200 characters per variant (plain string or `{zh, en}`) |
+| `summary` | optional free text, at most 200 characters per variant; informational only |
 | `workspace` | optional `[A-Za-z0-9._-]{1,32}`; shown to the human and copied into derived plans, not an implicit premise |
 | `budgetMs` | integer 500–30000, default 8000; wall-clock bound of one attempt |
 | `settleMs` | integer 50–5000, default 600; per-step verify deadline |
 | `interferencePromptMs` | integer 1000–60000, default 12000; how long the human has to answer an interference prompt before the attempt is terminated |
 | `steps` | 1–64 entries, executed in order |
 | `text` ops | at most 4096 characters summed over the plan |
-| unknown fields | rejected at every depth, so validation covers exactly what was read |
+| unknown fields | rejected at every depth with a hint naming the closest allowed field and its shape, so validation covers exactly what was read |
 
 A plan document may not carry a `lineage` field: only a plan the tool derived
 from an interrupted run has one (§6), and an authored document that claims a
@@ -182,6 +199,24 @@ rather than `capture.grim` (see §4). See
 | `pause` | `ms` (1–1000) | no | — | optional | — | — |
 | `assert` | `requires` | no | — | optional | forbidden | — (the predicates decide) |
 | `waitEvent` | `kind`, `timeoutMs` | no | — | optional | — | `events.socket` |
+
+The catalog is also a command: `hyprscope control ops` prints one line per op and
+`hyprscope control ops --json` prints a stable array. Both are derived from
+`OP_SPECS` and the `OP_FIELDS` field catalog in `src/plan/model.ts`, so the CLI
+reference cannot drift from what validation accepts. A human line reads
+
+```
+movePointer · needs none · requires inject.pointer · at:{x,y}|{window,point} [requires?, expect?]
+```
+
+Required fields appear as `name:shape`, optional fields in brackets with `?`,
+required clauses appear as bare `requires`/`expect`, and `assert` prints
+`expect:forbidden`. The JSON array has one entry per op in catalog order:
+`{op, mutating, idempotent, needsTarget, requires: [capability], fields: [{name, required, shape}]}`.
+`shape` is a one-line hint such as `at:{x,y}|{window,point}`, `1..1000`, or
+`activewindow|workspace|openwindow|closewindow`. A `screenshot` step that names a
+`window` is still gated by `capture.window` rather than by the base `capture.grim`
+capability the op lists.
 
 `moveWindow` and `resizeWindow` are absolute: `x`/`y` and `width`/`height` are
 layout pixels, and the emitted Lua call carries no `relative` field, which is the
@@ -454,7 +489,9 @@ keeps the per-run card. A stale or unverified baseline is refused with
 `CAPABILITY` before either path. The validated plan, with defaults applied, is
 serialized canonically (object keys sorted recursively, no whitespace) and stored
 next to the run in `plan.json`, so the artifact is exactly the document that was
-approved.
+approved. A localized `reason`/`summary` stays in that artifact exactly as
+authored; only the lease summary, the lease record's `reason`, and the dry-run
+report resolve it to one string (English first, then Chinese).
 
 Before every mutating call the executor re-reads the lease and requires: phase
 `granted`, same lease id, `planBound` true, not expired. A mismatch ends the run

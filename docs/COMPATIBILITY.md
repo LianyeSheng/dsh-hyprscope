@@ -58,7 +58,7 @@ Each capability has: an id, a level, a detection method, and a consequence when 
 
 | id | What it checks | What happens when missing |
 |---|---|---|
-| `safety.failsafe-bind` | The Lua entry configuration exists and is readable, and a binding with descriptive text is visible in `hyprctl binds -j` | One hand-back path is missing; the TTL, `done`, and the banner button remain, so it does not count as `required` |
+| `safety.failsafe-bind` | The Lua entry configuration exists and is readable, and a binding with descriptive text is visible in `hyprctl binds -j` | One hand-back path is missing; the TTL, a run's own release path, and the banner button remain, so it does not count as `required` |
 
 Note that during probing this item is **read-only verification only**: it does not write configuration, install the shortcut, or run `hyprctl reload`. Whether reload can succeed is known only to `hyprscope control install-bind` itself: it checks that `~/.config/hypr/hyprland.lua` exists and is readable (with no additional config provider check), and restores the configuration when the configuration reports an error or the binding does not appear in `hyprctl binds`; but the branch where `hyprctl reload` itself throws does not restore, which is a known gap.
 
@@ -146,7 +146,7 @@ effective(cap) =
 
 - **Direction**: code is the upper bound, the baseline can only subtract. An id in the baseline that the code does not know → ignore and warn; an id missing from the baseline → treat as `unknown`.
 - **Failure location** (the earlier the better):
-  1. Before the consent card: `hyprscope control run`, `hyprscope control run --dry-run` and `hyprscope control request` reject a plan or a request that uses a missing capability (`CAPABILITY`), naming the capability id and one plain-language sentence;
+  1. Before the consent card: `hyprscope control run` and `hyprscope control run --dry-run` reject a plan that uses a missing capability (`CAPABILITY`), naming the capability id and one plain-language sentence;
   2. Recovery: a derived plan is re-checked against the same fixed baseline before the lease is renewed, so a restore step the machine cannot run faults the attempt as `recovery.capability` instead of silently renewing control;
   3. Execution time: only "the baseline says supported but the running system changed" remains, which goes through the existing fault and interference paths.
 - **The baseline is absent or `incomplete`**: control is unavailable, read-only is available (`state`, `screenshot`, `events` are unaffected). The default should be off.
@@ -158,7 +158,7 @@ The baseline records what was measured; `src/compat/staleness.ts` asks whether t
 | source | what it answers | when it runs |
 |---|---|---|
 | version table | schema, protocol globals, JSON field names, whether `hl.dsp.*` exists | once per Hyprland version |
-| runtime queries | effective config: `configProvider`, `input:follow_mouse`, `hyprctl binds` (with modmask), `configerrors` | on probe, and before every `run`/`request` |
+| runtime queries | effective config: `configProvider`, `input:follow_mouse`, `hyprctl binds` (with modmask), `configerrors` | on probe, and before every `run` |
 | thin probe | the round trips no query can replace: dispatch accepted, pointer landing, key delivery, scratch window rules, event stream | on install, and again after any invalidation |
 
 The comparison follows four rules:
@@ -166,7 +166,7 @@ The comparison follows four rules:
 1. **Exact fields, no threshold.** Version, provider, `input:follow_mouse`, bind count, whether a plain F12 is bound, and configuration errors as a set are compared exactly; any difference is `stale`.
 2. **`configHash` only when recorded.** A baseline with a generated configuration records `configHash`; a null recorded hash means no generated configuration, so there is nothing to compare. Editing a snippet changes the hash.
 3. **Missing recorded value → `unverified`.** A baseline written before drift tracking has no `effective` block; it cannot attest anything, and control refuses it until it is re-probed.
-4. **Unobservable live value → `stale`; `stale` outranks `unverified`.** Both verdicts fail closed: `run` (including `--dry-run`) and `request` refuse with `CAPABILITY` before any consent card.
+4. **Unobservable live value → `stale`; `stale` outranks `unverified`.** Both verdicts fail closed: `run` (including `--dry-run`) refuses with `CAPABILITY` before any consent card.
 
 - The configuration file is not an inference source. Under the Lua provider it is a program; under `hyprlang` it still includes other files and variables. `hyprctl getoption`, `binds` and `configerrors` report what is actually in force; a hash of the files is only a cheap staleness trigger.
 - Window rules have no query API: whether a wildcard rule makes the scratch window tiled, resizes it, or refuses focus is observable only by opening that window. That observation is cheap (one window, a few reads) and stays in the thin probe.
@@ -207,7 +207,7 @@ This is the same trap as "consent is not certification": if the agent is both th
 | `src/plan/model.ts` | `requires: CapabilityId[]` on every predicate and op (still code constants) |
 | `src/plan/run.ts` | Gate before the consent card, baseline receipt in the run report, derived-plan re-check |
 | `src/plan/recover.ts`, `src/plan/executor.ts` | `restorability()` consults the effective set; `executePlan` also serves the probe's internal measure mode |
-| `src/lease/cli.ts` | Command surface; `request` and `run --dry-run` gating; `--desktop` selection |
+| `src/lease/cli.ts` | Command surface; `run`/`--dry-run` gating; `--desktop` selection |
 | `src/cli.ts`, `src/types.ts` | `doctor` baseline summary, read-only |
 | `test/compat.test.ts`, `test/compat-gate.test.ts` | Catalog, reader and gate tests that need no compositor |
 | `src/compat/staleness.ts` | Measures effective configuration and compares it with the fingerprint: `fresh`, `stale` or `unverified` |

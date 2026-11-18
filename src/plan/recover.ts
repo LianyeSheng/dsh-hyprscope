@@ -17,7 +17,7 @@ import { RESTORE_CAPABILITIES } from '../compat/catalog.ts'
 import type { CapabilityId } from '../compat/types.ts'
 import { tr, type RenderLanguage } from '../i18n.ts'
 import {
-  PLAN_LIMITS, PREDICATE_SPECS,
+  PLAN_LIMITS, planTextString, PREDICATE_SPECS,
   type AbsolutePoint, type AnchorPoint, type Plan, type PlanLineage, type PlanStep, type Predicate,
   type PredicateKind, type RestoreKind, type WindowTarget,
 } from './model.ts'
@@ -392,7 +392,7 @@ export function deriveResumePlan(options: DeriveOptions): DeriveOutcome {
     plan: {
       version: 1,
       id: derivedId,
-      reason: `${options.plan.reason} (recovery ${options.attempt})`.slice(0, 200),
+      reason: `${planTextString(options.plan.reason)} (recovery ${options.attempt})`.slice(0, 200),
       summary: options.summary,
       budgetMs: options.plan.budgetMs,
       settleMs: options.plan.settleMs,

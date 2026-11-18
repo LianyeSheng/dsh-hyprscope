@@ -4,19 +4,14 @@ import { join } from 'node:path'
 import type { Readable } from 'node:stream'
 import { ErrorCode, HyprscopeError } from '../errors.ts'
 import { resolveLanguage } from '../i18n.ts'
-import { readBaseline } from '../compat/baseline.ts'
-import { assertControlAvailable, assertFreshBaseline } from '../compat/gate.ts'
-import { compareEffective, measureEffective } from '../compat/staleness.ts'
 import { hashDesktopConfig } from '../desktop/config.ts'
 import { readDesktopRecord } from '../desktop/record.ts'
 import { parseDesktopTarget, resolveTarget } from '../desktop/target.ts'
 import type { DesktopTarget, ResolvedTarget } from '../desktop/types.ts'
 import type { DesktopStatusReport } from '../desktop/lifecycle.ts'
 import { installBind, uninstallBind } from './bind.ts'
-import {
-  DEFAULT_CONSENT_MS, DEFAULT_TTL_MS, grantLease, holdLease, leaseStatus, releaseLease, requestLease,
-} from './control.ts'
-import { PLAN_LIMITS } from '../plan/model.ts'
+import { leaseStatus, releaseLease } from './control.ts'
+import { PLAN_LIMITS, planTextString } from '../plan/model.ts'
 
 const VERSION = (JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as { version: string }).version
 
@@ -26,23 +21,18 @@ Usage: hyprscope control <command> [options]
 
 Commands:
   run <plan.json | ->  Approve a plan, execute it under control, then release
-  request          Show the consent card and wait for the host's decision
+  ops              List the supported ops and their fields (--json for the catalog)
   status           Print the current lease
-  done             Release control from the agent side
-  panic            Release control immediately (used by the failsafe shortcut)
+  panic            Emergency release used by the failsafe shortcut; not an agent workflow step
   install-bind     Install the SUPER + ALT + ESC failsafe into the Hyprland config
   uninstall-bind   Remove the failsafe bind and its generated Lua file
   baseline         Measure this machine's capabilities and ask the host to accept them
   desktop          Start, attach, inspect, or stop an agent-dedicated desktop
-  __hold           Internal: detached holder that keeps the lease until it ends
 
 Options:
   --desktop <t>     user (default), agent, or external
-  --reason <text>   Why the agent needs control (shown in the consent card)
-  --ttl <seconds>   Longest control window after approval (default 120)
   --consent <secs>  How long the consent card waits (default 45)
   --key <combo>     Failsafe key for install-bind (default "SUPER + ALT + ESC")
-  --lease <id>      Lease id for __hold
   --source <name>   Origin recorded in the lease (default: agent or host)
   --max-resumes <n> Recovery attempts one run may use (default 1, max 3)
   --dry-run         Validate the plan without asking
@@ -63,11 +53,8 @@ export interface LeaseCliOptions {
   json: boolean
   help: boolean
   version: boolean
-  reason?: string
-  ttlSec?: number
   consentSec?: number
   key?: string
-  lease?: string
   source?: string
   desktop?: string
   runtimeDir?: string
@@ -135,7 +122,7 @@ async function readPlanInput(io: Io): Promise<string> {
 }
 
 const VALUE_OPTIONS: Record<string, keyof LeaseCliOptions> = {
-  '--reason': 'reason', '--ttl': 'ttlSec', '--consent': 'consentSec', '--key': 'key', '--lease': 'lease',
+  '--consent': 'consentSec', '--key': 'key',
   '--source': 'source', '--max-resumes': 'maxResumes', '--desktop': 'desktop',
   '--runtime-dir': 'runtimeDir', '--signature': 'signature', '--size': 'size', '--consent-source': 'consentSource',
   '--lang': 'lang',
@@ -272,13 +259,10 @@ export function parseLeaseArgs(argv: string[]): { options: LeaseCliOptions; comm
     }
     options.maxResumes = resumes
   }
-  for (const field of ['ttlSec', 'consentSec'] as const) {
-    const raw = options[field]
-    if (typeof raw === 'string') {
-      const seconds = Number.parseInt(raw, 10)
-      if (!Number.isSafeInteger(seconds) || seconds <= 0) throw usage(`--${field === 'ttlSec' ? 'ttl' : 'consent'} expects positive seconds`)
-      options[field] = seconds
-    }
+  if (typeof options.consentSec === 'string') {
+    const seconds = Number.parseInt(options.consentSec, 10)
+    if (!Number.isSafeInteger(seconds) || seconds <= 0) throw usage('--consent expects positive seconds')
+    options.consentSec = seconds
   }
   return { options, command: positional[0], args: positional.slice(1) }
 }
@@ -340,36 +324,11 @@ export async function main(argv: string[], io: Io = { stdout: process.stdout, st
   }
   try {
     switch (command) {
-      case 'request': {
-        if (options.reason === undefined || options.reason.trim() === '') {
-          throw usage('request requires --reason "why the agent needs control"')
-        }
-        // Control is unavailable without an accepted, current baseline that
-        // measures every required capability, so refuse before showing a card
-        // that cannot help.
-        const target = targetOf(options)
-        const resolved = await resolveFor(options, target)
-        const baseline = await readBaseline(process.env, { signature: resolved.baselineSignature })
-        assertControlAvailable(baseline.loaded)
-        const observed = await measureEffective(resolved.session)
-        const staleness = compareEffective(baseline.loaded!.document.fingerprint, observed, {
-          configHash: await liveConfigHash(resolved), approvedAt: baseline.loaded!.approvedAt,
-        })
-        assertFreshBaseline(staleness)
-        const ttlMs = (options.ttlSec ?? DEFAULT_TTL_MS / 1000) * 1000
-        const outcome = target === 'user'
-          ? await requestLease({
-            reason: options.reason,
-            ttlMs,
-            consentMs: (options.consentSec ?? DEFAULT_CONSENT_MS / 1000) * 1000,
-            lang: resolveLanguage(options.lang),
-          })
-          : await grantLease({ reason: options.reason, ttlMs, env: resolved.env, source: 'desktop' })
-        const granted = outcome.allowed && outcome.phase === 'granted'
-        print(io, outcome, options.json, value => value.allowed && value.phase === 'granted'
-          ? `granted · lease ${value.leaseId} · expires ${value.expiresAt}`
-          : `declined (${value.reason}) · lease ${value.leaseId}`)
-        return granted ? 0 : 1
+      case 'ops': {
+        if (parsed.args.length > 0) throw usage('ops takes no arguments besides --json')
+        const { listOps, renderOps } = await import('../plan/ops.ts')
+        print(io, listOps(), options.json, () => renderOps())
+        return 0
       }
       case 'run': {
         const file = parsed.args[0]
@@ -384,7 +343,15 @@ export async function main(argv: string[], io: Io = { stdout: process.stdout, st
           const plan = source.text === undefined
             ? await loadPlan(source.file)
             : loadPlanText(source.text, 'Plan input')
-          const preview = previewPlan(plan)
+          // The report is machine-readable and keeps authored text as one
+          // string: a localized reason or summary resolves English first, then
+          // Chinese. The consent card keeps its per-language rendering.
+          const reported = {
+            ...plan,
+            reason: planTextString(plan.reason),
+            summary: plan.summary === null ? null : planTextString(plan.summary),
+          }
+          const preview = previewPlan(reported)
           // Refuse a doomed plan before it ever reaches a consent card.
           const check = await checkPlan(plan, { desktop: targetOf(options) })
           print(io, {
@@ -428,12 +395,6 @@ export async function main(argv: string[], io: Io = { stdout: process.stdout, st
             + (value.attempt > 0 ? ` · recovery ${value.attempt}/${value.maxResumes}` : '')
             + `${value.stale ? ' · STALE' : ''}`
           : `idle${value.phase === null ? '' : ` · last phase ${value.phase}`}`)
-        return 0
-      }
-      case 'done': {
-        const env = options.desktop === undefined ? process.env : (await resolveFor(options, targetOf(options))).env
-        print(io, await releaseLease({ action: 'done', source: options.source, env }), options.json,
-          value => `${value.action}: ${value.ok ? 'released' : 'nothing to release'}${value.forced ? ' (forced)' : ''}`)
         return 0
       }
       case 'panic': {
@@ -580,11 +541,6 @@ export async function main(argv: string[], io: Io = { stdout: process.stdout, st
           return 0
         }
         throw usage('desktop expects start, attach, status, or stop')
-      }
-      case '__hold': {
-        if (options.lease === undefined) throw usage('__hold requires --lease <id>')
-        await holdLease({ leaseId: options.lease })
-        return 0
       }
       default:
         throw usage(`Unknown command ${command}`)

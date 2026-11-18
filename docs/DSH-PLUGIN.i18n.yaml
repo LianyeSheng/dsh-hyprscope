@@ -6,26 +6,35 @@
 # After editing either side, re-record the pair:
 #   python3 .agents/se/scripts/docs/verify_translation_pairing.py --write <pair>
 /dsh-plugin-for-hyprscope:
-  en: 912c10eaeb424707
-  zh: 54c6eed50b7acec9
+  en: 4b6aeef70b3e5ab8
+  zh: 7a0a9474f080604b
 /dsh-plugin-for-hyprscope/what-it-is-and-why:
-  en: 426f5e9c3c51ea87
-  zh: 6b1024ecfc69133d
+  en: d3eec1140bd0e146
+  zh: e1f9294ab12d84c1
 /dsh-plugin-for-hyprscope/installing-the-bundle:
-  en: 8685f6a0f1e90e93
-  zh: 696aeec945ff083a
-/dsh-plugin-for-hyprscope/the-eight-tools:
-  en: b66eb08668a7a14b
-  zh: 4dbf4ec1e1bb5fef
+  en: ade426c3b6aa14d6
+  zh: 40eb586492db5ca2
+/dsh-plugin-for-hyprscope/editing-the-bundle:
+  en: 258774c56247b4a8
+  zh: 775279f1ef950d1c
+/dsh-plugin-for-hyprscope/the-six-tools:
+  en: 3d0c5fb7fb2001a9
+  zh: 3ee21628335d793f
 /dsh-plugin-for-hyprscope/capturing-one-window:
   en: 8eb369cdee9d4f84
   zh: 7dc31df416f2f1cd
+/dsh-plugin-for-hyprscope/capturing-a-consent-card-from-an-agent-session:
+  en: 2c15e08f5babecea
+  zh: 782d2d9cb6825040
+/dsh-plugin-for-hyprscope/when-a-call-fails:
+  en: aed1d807c7fb1f39
+  zh: 21c45830128bd366
 /dsh-plugin-for-hyprscope/configuration:
   en: e0db53d58cf9b1e7
   zh: 3c01a45f29caaf63
 /dsh-plugin-for-hyprscope/how-the-safety-boundary-holds:
-  en: 3168ef159e33b565
-  zh: aebb03194a2d4208
+  en: aee2bb58fc410853
+  zh: 2e73d9597d2fc6be
 /dsh-plugin-for-hyprscope/limitations:
-  en: 55e0fc7e2f3266be
+  en: 40d5227d1072900a
   zh: 76f08398c7fef6d4

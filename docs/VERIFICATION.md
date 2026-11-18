@@ -228,6 +228,68 @@ The DSH bundle now carries the project's name, and its Plugins entry says what a
 
 Not verified: how the Plugins page and Settings draw the new icon and locale text in the browser, because this session has no browser control; the SVG was rasterized outside DSH with `rsvg-convert` and checked at row and card sizes on light and dark backgrounds instead.
 
+## Language, off-screen capture and doctor (2026-11-18)
+
+The bilingual consent card, the plugin's language mapping, window capture of an off-screen window and the new doctor checks were verified on the same test machine on 2026-11-18: Hyprland 0.57.2 on `wayland-1`, active workspace 2, a `foot` window on workspace 1 and another `foot` window on workspace 4.
+
+**CLI consent card in both languages.** The demo plan moved the pointer twice and paused, so an approval could not touch a window; the reason was `demonstrate the bilingual consent card`. The Chinese and English cards came from the same command with only the language option changed:
+
+```bash
+node bin/hyprscope.ts control run .tmp/lang-demo-plan.json --lang zh
+node bin/hyprscope.ts control run .tmp/lang-demo-plan.json --lang en
+```
+
+- `--lang zh` rendered the Chinese card: title `Agent 请求执行计划`, the reason, `计划 lang-demo：move the pointer twice, then pause; nothing is clicked`, `共 3 步 · 预算 8 秒`, one line per step, `拒绝` / `允许操控` and the countdown.
+- `--lang en` rendered the English card: title `Agent requests to run a plan`, the same reason, `Plan lang-demo: move the pointer twice, then pause; nothing is clicked`, `3 steps · budget 8 s`, one line per step, `Deny` / `Allow control` and the countdown.
+- The waiting `state.json` carried that card verbatim — title, lines, `acceptLabel: "允许操控"`, `denyLabel: "拒绝"` — and after the host clicked Allow it recorded `grantedBy: "overlay"`; the lease ended `released` with `planBound: true` and `ttlMs: 28000`, and the run executed under that consent.
+- The click continued the waiting call without spawning a CLI process: the overlay writes the answer file itself and the waiting tool records the decision and continues.
+- The three demo runs completed all 3 steps in 324–332 ms (`out/runs/20261118T153417-2c3f0d`, `…-73dc5f`, `…-b52d83`); `state.json` from `…-b52d83` is the record quoted above.
+
+**DSH plugin language mapping.** The plan tool was driven through the plugin's own handler with `language: "en"`:
+
+```bash
+node .tmp/dsh-plugin-driver.mjs
+```
+
+The driver calls `execute({ action: "run", planPath: ".tmp/lang-demo-plan.json", language: "en", consentSeconds: 60 })`; the plugin mapped the language to `--lang en` on the spawned CLI, the card rendered in English (`Agent requests to run a plan`, `Deny` / `Allow control`), and the call returned `RESULT {"runId":"20261118T153952-35bd94","status":"completed","steps":3,"fault":null}`. A second timed run while the same card was up (`out/runs/20261118T154048-2abedb`) also completed 3/3, in 334 ms.
+
+**Off-screen window capture.** With workspace 2 active, `--window-id` captured a mapped `foot` window on workspace 1 and another on workspace 4:
+
+```bash
+node bin/hyprscope.ts screenshot --window-id 0x560360f3c380 --output .tmp/verify-window-ws1.png --json
+node bin/hyprscope.ts screenshot --window-id 0x56035f695030 --output .tmp/verify-window-ws4.png --json
+```
+
+The workspace-1 capture was 2448×1378 with `source.scope: "window"` and `window {identifier: "180002d9", appId: "foot", title: "~/w/dsh-hyprscope"}`; the workspace-4 capture was 1228×1398 with `window {identifier: "180001c6", appId: "foot", title: "rclone mount OneDriv ~"}`. The Hyprland address was translated through `hyprctl clients` to the foreign-toplevel id, and each PNG carried the window's own size rather than the 2560×1440 output.
+
+**New doctor checks.** `doctor` now reports an `environment` block and a `capture.window` limitation; both are additive to the existing fields:
+
+```bash
+node bin/hyprscope.ts doctor
+node bin/hyprscope.ts doctor --json
+```
+
+- Overlay runtime: `quickshell at /usr/bin/quickshell (default)` — a PATH lookup that honours `HYPRSCOPE_QUICKSHELL`; doctor never starts the overlay or the binary.
+- State directory: `/home/jw/.local/state/hyprscope (exists, not writable)` with a `state hint` naming `EROFS: read-only file system`. That is this agent's file sandbox, not the host: a fresh `XDG_STATE_HOME=$PWD/.tmp/state-probe` run reported `exists: false, writable: true, probe: …/.tmp/state-probe`, and the directory stayed empty afterwards, so the check creates nothing.
+- `capture.window`: window capture also works for a mapped window on an inactive workspace or off-screen, and the PNG carries the window size, not the output size.
+- Screenshot preflight: an explicit `--output` must point into an existing, writable directory. A missing directory and a `chmod 500` directory both failed with exit 1 and `SCREENSHOT_FAILED: Cannot write the capture: …; pass --output <writable path>`, while `XDG_CACHE_HOME=$PWD/.tmp/cache node bin/hyprscope.ts screenshot` still created the default `hyprscope` cache directory and wrote a 2560×1440 layout capture.
+
+Automated checks this round: `node --test test/doctor.test.ts test/screenshot.test.ts test/cli.test.ts test/live.test.ts` passed 50 tests (11 + 17 + 14 + 8); the new live test read the doctor `environment` block from the running compositor and the existing live window-capture test captured an off-screen window. The pair was re-recorded with the bilingual pairing gate.
+
+## Ambiguous window selectors and explicit capture output (2026-11-18)
+
+Two `foot` windows were open, one on workspace 1 and one on workspace 4, with workspace 2 active. `--window-app foot` now refuses the ambiguity with one stable line per candidate instead of a bare count:
+
+```bash
+node bin/hyprscope.ts screenshot --window-app foot --output .tmp/ambiguous.png
+```
+
+The command exited 2 with `USAGE: 2 windows match this application id; use --window-id to pick one:` followed by the candidates ordered by workspace and then address: workspace 1 `0x560360f3c380` `foot` `title "~/w/dsh-hyprscope"` and workspace 4 `0x56035f695030` `foot` `title "rclone mount OneDriv ~"`, both marked `off-screen` because workspace 2 was active. `--json` carried the same ordered list in `details.candidates` plus `details.hint`, and `--window-title` duplicates take the same path (unit-tested with a fake compositor, because the two live `foot` titles differ).
+
+An explicit `--output` in a missing directory now fails before the capture helper runs: `captureToplevel()` reuses the same `SCREENSHOT_FAILED` preflight as `capture()`, so `--window-id 180002d9 --output .tmp/no-dir/window.png` exited 1 with `Cannot write the capture: the capture directory does not exist; pass --output <writable path>` and created no directory. The default `$XDG_CACHE_HOME/hyprscope` path is still created for a layout capture.
+
+Automated checks this round: `node --test test/window-selector.test.ts test/toplevel.test.ts test/screenshot.test.ts test/cli.test.ts test/live.test.ts` passed 53 tests (6 + 8 + 17 + 14 + 8), and `pnpm run typecheck` was clean. The pair was re-recorded with the bilingual pairing gate.
+
 ## Not covered
 
 Multi-monitor, multiple Hyprland instances, multiple seats and behavior while the screen is locked have no on-machine entries in this record, and no cross-version comparison was done; the lease's ability to intercept physical input does not exist in the first place (see [LEASE.md](/docs/LEASE.md)). Drawing any conclusion requires running again in the corresponding environment.

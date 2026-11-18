@@ -7,24 +7,23 @@
 ## 一次租约的完整过程
 
 ```
-agent:   hyprscope control request --reason "填写登录表单" --ttl 120
+agent:   hyprscope control run plan.json
 host:    a consent card pops up in the middle of the screen (allow / deny; auto-deny after 45 seconds)
 host:    clicks allow
-agent:   receives {granted: true, leaseId, expiresAt} and starts working
+agent:   the run executes the plan under the lease, then hands control back when it ends
 agent:   hits recoverable interference → writes interference.json and waits for the host's answer
 host:    chooses "Continue execution"
 agent:   renews the same lease and runs the derived recovery plan (1 by default, at most 3)
-agent:   hyprscope control done            # hand control back voluntarily
 host:    SUPER + ALT + ESC          # or press this key at any time to interrupt
 ```
 
-- `request` 只在等待**同意决定**期间阻塞；批准后它立刻退出，由一个后台 holder 进程持有租约、维持超时、在结束时关闭浮层。
-- 租约有 TTL（默认 120 秒）：agent 崩溃、忘记调 `done`、或者进程被杀，都会在到期时自动交还。
+- `run` 就是 agent 的完整工作流：它校验计划，在同一次调用里弹出同意卡；批准后为整个运行持有租约、执行计划、结束时交还控制权；没有单独的申请或交还命令。
+- 租约有 TTL（默认 120 秒）：agent 崩溃、一直没有交还、或者进程被杀，都会在到期时自动交还。
 - 浮层有两副面孔：同意阶段是全屏独占键盘的模态卡片；批准后缩成顶部窄条，显示"Agent 正在操控桌面 · 剩余时间"，右侧有「立即收回」。窄条不拦截鼠标和键盘，agent 的注入不会被挡住。
 
-在 agent 或 external 桌面里，人只在 `desktop start` 或 `desktop attach` 时同意一次。此后 `run`、`request` 和 `baseline --probe` 拿到的是**程序化租约**，不弹卡片（`grantedBy: desktop`），前提是桌面记录里带着这份同意；计划运行仍把这份租约绑定到这次提交的计划和 TTL，`wl-inject` 仍校验同一份证明。用户自己的桌面永远不走这条路：它保留逐次运行的同意卡片。程序化租约从不启动浮层。
+在 agent 或 external 桌面里，人只在 `desktop start` 或 `desktop attach` 时同意一次。此后 `run` 和 `baseline --probe` 拿到的是**程序化租约**，不弹卡片（`grantedBy: desktop`），前提是桌面记录里带着这份同意；计划运行仍把这份租约绑定到这次提交的计划和 TTL，`wl-inject` 仍校验同一份证明。用户自己的桌面永远不走这条路：它保留逐次运行的同意卡片。程序化租约从不启动浮层。
 
-关掉桌面的窗口并不会顺带撤销租约。`desktop stop` 会显式释放被停止桌面的租约；compositor 消失打断的运行以 `target.desktop-closed` fault，并在自己的 `finally` 路径里释放；没有 run 在执行的 detached holder 会一直持有租约，直到 TTL 到期。
+关掉桌面的窗口并不会顺带撤销租约。`desktop stop` 会显式释放被停止桌面的租约；compositor 消失打断的运行以 `target.desktop-closed` fault，并在自己的 `finally` 路径里释放；没有 run 在释放的内部 holder 会一直持有租约，直到 TTL 到期。
 
 ## 状态与文件
 
@@ -36,16 +35,16 @@ host:    SUPER + ALT + ESC          # or press this key at any time to interrupt
 |---|---|
 | `state.json` | 唯一事实来源：阶段、原因、起止时间、pid；绑定计划时还带 `planBound: true`、`planSummary`、`card`（同意卡展示的内容：描述与步骤行，或一次批准的事实）、`attempt`、`maxResumes`、`totalBudgetMs`、`renewals[]`；仅批准请求带同一份 `card`，并有 `approvalOnly: true` 和 `ttlMs: 0` |
 | `decision.json` | 同意阶段由浮层或宿主写入 `allow` / `deny` / `panic` |
-| `control.json` | 批准后由 `done` / `panic` 写入交还请求 |
+| `control.json` | 由宿主兜底（`panic`）或由结束的运行写入交还请求 |
 | `heartbeat.json` | requester 和 holder 每 500ms 刷新，用来判断租约是否失主 |
-| `lease.lock` | 单租约互斥；带 `leaseId`，重复申请会被 `LEASE_ACTIVE` 拒绝 |
+| `lease.lock` | 单租约互斥；带 `leaseId`，第二次租约申请会被 `LEASE_ACTIVE` 拒绝 |
 | `notice.json` | 执行器发布的短暂提示；浮层只在 `leaseId` 匹配且未过期时显示，恢复开始时是「第 N 次恢复：…」 |
 | `progress.json` | 执行器逐步发布的执行进度：`step`/`total`/`op`、`status`、`attempt`、`maxResumes`、`phase`；派生尝试全程是 `recovering`，浮层据此渲染横幅和回执 |
 | `interference.json` | 执行器发布的阻塞式干扰询问：id、第 k/n 步、全部被打破前提、恢复次数、追加预算、截止时间 |
 | `interference-decision.json` | 浮层按钮直接写入的 `continue` / `abort`，必须回带询问的 `id` |
 | `overlay.log` | Quickshell 浮层的 stderr |
 
-状态文件都带 `leaseId` 校验：旧租约残留的 `done` 记录不会结束新租约（有回归测试覆盖）。每次 `request` 开始时也会清掉上一轮的 decision/control/heartbeat。
+状态文件都带 `leaseId` 校验：旧租约残留的交还记录不会结束新租约（有回归测试覆盖）。每次新的租约申请也会清掉上一轮的 decision/control/heartbeat。
 
 状态目录不放在 `XDG_RUNTIME_DIR`：Harness 的文件沙箱可能把 `/run/user/<uid>` 挂成只读，而快捷键进程（从 compositor 启动）和 agent 进程必须访问同一份文件。
 
@@ -55,7 +54,7 @@ host:    SUPER + ALT + ESC          # or press this key at any time to interrupt
 
 | 字段 | 含义 |
 |---|---|
-| `planBound` | 租约是否批准了一份具体提交的计划：`run` 和 `baseline --probe` 为 `true`，`request` 为 `false` |
+| `planBound` | 租约是否批准了一份具体提交的计划：`run` 和 `baseline --probe` 为 `true`，仅批准租约（内部使用，给基线验收）为 `false` |
 | `planSummary` | 宿主在同意卡上看到的预览：`steps`、`ops`、`workspace`、`summary` |
 | `attempt` | 当前尝试：`0` 是原始计划，`1..maxResumes` 是恢复尝试 |
 | `maxResumes` | 同意覆盖的恢复次数；默认 `1`，硬上限 `3` |
@@ -103,11 +102,10 @@ agent 或 external 桌面里没有浮层，也就没有询问：可恢复的冲�
 ## 命令
 
 ```
-hyprscope control run <plan.json> [--consent 45] [--max-resumes 1] [--dry-run] [--json]   # approve and execute a plan
-hyprscope control request --reason <text> [--ttl 120] [--consent 45] [--json]
+hyprscope control run <plan.json> [--consent 45] [--max-resumes 1] [--dry-run] [--json]   # ask for consent, execute, release
+hyprscope control ops [--json]          # the operation catalog a plan can use
 hyprscope control status [--json]       # phase, remaining time, holder/overlay pid, stale, recovery progress
-hyprscope control done [--json]         # the agent hands control back
-hyprscope control panic [--json]        # the host takes control back immediately (this is what the shortcut runs)
+hyprscope control panic [--json]        # emergency revoke (the shortcut and `desktop stop` run it)
 hyprscope control install-bind [--key "SUPER + ALT + ESC"]
 hyprscope control uninstall-bind
 hyprscope control baseline --probe [--read-only] [--json]   # measure this machine; a widening result asks the host and writes the accepted baseline on Allow
@@ -120,13 +118,13 @@ hyprscope control desktop stop [--json]
 
 每个 `hyprscope control ...` 命令还接受 `--lang <zh|en>`：它选择同意卡或确认卡、以及它启动的浮层的语言。省略时取 `HYPRSCOPE_LANG` 环境变量，再否则 `zh`；不支持的值按用法错误处理。卡片内容（计划预览行、基线确认行、原因与恢复提示）和浮层外观都跟随它，CLI 的 stdout 仍是英文。
 
-`--desktop user|agent|external` 选择 `run`、`request`、`status`、`done`、`panic` 和 `baseline` 作用的桌面；省略即 `user`。`request`、`status`、`done`、`panic` 操作的是该桌面按签名区分的租约，所以 `done` 必须指向持有租约的那个桌面。
+`--desktop user|agent|external` 选择 `run`、`ops`、`status`、`panic`、`baseline` 和 `desktop` 作用的桌面；省略即 `user`。`status` 和 `panic` 操作的是该桌面按签名区分的租约，所以 `panic` 必须指向持有租约的那个桌面。
 
-`run` 和 `request` 先读它们所针对桌面的已验收能力基线（capability baseline）：`user` 用按机器的 `$XDG_STATE_HOME/hyprscope/baseline.json`，`agent`/`external` 用 `$XDG_STATE_HOME/hyprscope/desktop/baseline/<signature>.json`（见 [BASELINE.md](/docs/BASELINE.zh.md)）：文件缺失、仍是草稿、`incomplete`，或者 staleness 判定不是 `fresh` 时，它们会在任何同意卡片出现之前以 `CAPABILITY` 失败，宿主因此不会被要求批准这台机器跑不了的事。`baseline --probe` 是唯一不需要基线也能走的控制路径，因为基线正是它创建的；它仍然要申请自己的短租约。
+`run` 先读它所针对桌面的已验收能力基线（capability baseline）：`user` 用按机器的 `$XDG_STATE_HOME/hyprscope/baseline.json`，`agent`/`external` 用 `$XDG_STATE_HOME/hyprscope/desktop/baseline/<signature>.json`（见 [BASELINE.md](/docs/BASELINE.zh.md)）：文件缺失、仍是草稿、`incomplete`，或者 staleness 判定不是 `fresh` 时，它们会在任何同意卡片出现之前以 `CAPABILITY` 失败，宿主因此不会被要求批准这台机器跑不了的事。`baseline --probe` 是唯一不需要基线也能走的控制路径，因为基线正是它创建的；它仍然要申请自己的短租约。
 
-`--max-resumes` 取 `0..3`（默认 `1`），是同意卡覆盖的恢复次数：`0` 表示第一次遇到可恢复干扰就直接 fault，不再弹询问卡。`--dry-run` 会顺带打印这项额度。`--consent` 对 `run` 与 `request` 都有效；`--ttl` 只影响 `request`，`run` 每次尝试的 TTL 由计划 `budgetMs` 加 20000ms 余量决定。
+`--max-resumes` 取 `0..3`（默认 `1`），是同意卡覆盖的恢复次数：`0` 表示第一次遇到可恢复干扰就直接 fault，不再弹询问卡。`--dry-run` 会顺带打印这项额度。`--consent` 对 `run` 与 `baseline --probe` 有效；`run` 每次尝试的 TTL 由计划 `budgetMs` 加 20000ms 余量决定。
 
-退出码：`request` 被同意为 0，被拒绝/超时为 1，参数错误为 2。`__hold` 是后台 holder 用的内部命令，不面向上层调用方。
+退出码：`run` 计划完成为 0，fault、被撤销、同意被拒绝或超时为 1，参数错误为 2。分离的 holder 是租约代码启动的内部模块入口，不是 CLI 命令，也不属于对外文档化的命令面。
 
 `install-bind` 会往 `~/.config/hypr/hyprland.lua` 追加一段带标记的 `hl.bind(...)`，先生成带时间戳的备份，然后 `hyprctl reload`，再通过 `hyprctl binds -j` 的 `description` 字段确认绑定真的生效；没生效会回滚配置并报 `BIND_FAILED`。`uninstall-bind` 删除这一段并重新加载。替换或卸载时同时接受新的 `hyprscope` 标记和历史 `hyprlease` 标记；CLI 合并之前安装的 bind 指向已删除的 `bin/hyprlease.ts`，需要重装。
 
@@ -139,7 +137,7 @@ hyprscope control desktop stop [--json]
 1. **快捷键** `SUPER + ALT + ESC`：compositor 级 bind，浮层是否抢键盘都不影响它。命令是绝对路径，链接到 `hyprscope control panic`。
 2. **浮层上的「立即收回」**：鼠标点一下就结束，不依赖键盘。
 3. **TTL 到期**：holder 自己到点交还，不依赖任何一方配合。
-4. **心跳失主清理**：holder/requester 的心跳超过 5 秒没更新，下一次 `status`/`request` 会把租约标成 `revoked` 并清掉浮层和锁。
+4. **心跳失主清理**：holder/requester 的心跳超过 5 秒没更新，下一次 `status` 或 `run` 会把租约标成 `revoked` 并清掉浮层和锁。
 5. **`panic` 的强制路径**：写了 `control.json` 后 5 秒内没等到终态，就自己杀浮层（只杀 `/proc/<pid>/comm` 是 quickshell 的进程）、写终态、放锁。
 
 已经发出的输入不可撤销（注入启用后），所以所有路径的语义都是"停止后续动作 + 释放已按下的按键/按钮"，不是回滚。
@@ -157,7 +155,7 @@ hyprscope control desktop stop [--json]
 
 这一点必须写下来：同意卡片渲染在同一个 seat 上，任何能注入指针/键盘的进程都能把「允许」点掉。我们实测过一次：用 `bin/wl-inject` 往按钮坐标发一次点击，卡片就关掉了——那次是测试按钮是否真的可点，但它同时证明了卡片自身不构成认证。
 
-现在能做的门控：注入 helper 要求调用方提供**已授予**的租约证明（`--lease-state` + `--lease`），每次注入前重读 `state.json`，要求 `phase=granted`、`leaseId` 匹配、`planBound: true`、未过期。于是同意阶段（`consent`）注入一律被拒绝，agent 不能再用官方 helper 点自己的同意卡。`request` 发起的租约里 `planBound` 为 `false`，这条证明对"先申请再点同意"同样不成立。
+现在能做的门控：注入 helper 要求调用方提供**已授予**的租约证明（`--lease-state` + `--lease`），每次注入前重读 `state.json`，要求 `phase=granted`、`leaseId` 匹配、`planBound: true`、未过期。于是同意阶段（`consent`）注入一律被拒绝，agent 不能再用官方 helper 点自己的同意卡。仅批准租约（内部使用，给基线验收）的 `planBound` 为 `false`，这条证明对"先批准再点同意"同样不成立。
 
 它挡不住什么：同一 uid 下，能跑任意代码的 agent 可以自己写一个 Wayland 客户端用同样的协议注入，也可以直接伪造 `state.json` 或 `decision.json`。真正的边界只有两条路：把租约状态和注入通道交给独立 uid 的 broker（agent 侧拿不到 compositor socket 和状态目录），或者给 agent 一个独立 compositor 会话。在补齐之前，同意卡片的作用是**可见性和知情**，不是认证。
 

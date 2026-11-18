@@ -2,7 +2,7 @@
 
 English | [中文](/docs/DSH-PLUGIN.zh.md)
 
-`plugins/dsh-hyprscope/` is the project's native, plug-and-play DSH Host bundle; it turns the hyprscope CLI into eight tools a model can call. Instead of composing `node bin/hyprscope.ts ...` shell commands — remembering the checkout path, the flag order and the `--json` switch, then parsing the result — a DSH session calls `hyprscope_observe`, `hyprscope_screenshot`, `hyprscope_events`, `hyprscope_lease`, `hyprscope_plan`, `hyprscope_act`, `hyprscope_baseline` or `hyprscope_desktop` with typed arguments and gets a parsed object back.
+`plugins/dsh-hyprscope/` is the project's native, plug-and-play DSH Host bundle; it turns the hyprscope CLI into six tools a model can call. Instead of composing `node bin/hyprscope.ts ...` shell commands — remembering the checkout path, the flag order and the `--json` switch, then parsing the result — a DSH session calls `hyprscope_observe`, `hyprscope_screenshot`, `hyprscope_events`, `hyprscope_plan`, `hyprscope_baseline` or `hyprscope_desktop` with typed arguments and gets a parsed object back.
 
 The bundle is a thin wrapper, not a second implementation: every tool call runs `node bin/hyprscope.ts <command> --json` as a child process, with an argv array and no shell. The CLI keeps every gate, and the plugin adds no way around them. It is Host-only: it registers tools, not a page.
 
@@ -10,20 +10,18 @@ The bundle is a thin wrapper, not a second implementation: every tool call runs 
 
 For an agent, the shell route is friction on observation and risk on control. Observation costs a chain of small mistakes to get right: finding the checkout, remembering which flags come before the positional argument, choosing `--json`, telling exit code 2 (bad arguments) from exit code 1 (any other failure), and reading failure JSON on stderr rather than stdout. Control adds the step that matters most: the consent card is shown on the host's screen and answered by the host, not by the process that wants the lease.
 
-The bundle moves command construction back into code. The model sees eight tool definitions with JSON-Schema arguments, gets one parsed object back, and on failure gets hyprscope's error code and the next step in the message. What the CLI refuses, the tool call refuses in the same way. Each tool is one subcommand:
+The bundle moves command construction back into code. The model sees six tool definitions with JSON-Schema arguments, gets one parsed object back, and on failure gets hyprscope's error code and the next step in the message. What the CLI refuses, the tool call refuses in the same way. Each tool is one subcommand:
 
 ```sh
 hyprscope_observe     -> node bin/hyprscope.ts <kind> --json
 hyprscope_screenshot  -> node bin/hyprscope.ts screenshot --json
 hyprscope_events      -> node bin/hyprscope.ts events --json
-hyprscope_lease       -> node bin/hyprscope.ts control <request|status|done|panic> [--lang zh|en] --json
 hyprscope_plan        -> node bin/hyprscope.ts control run <plan.json | -> [--dry-run] [--lang zh|en] --json
-hyprscope_act         -> node bin/hyprscope.ts control run - [--lang zh|en] --json
 hyprscope_baseline    -> node bin/hyprscope.ts control baseline --show|--probe [--lang zh|en] --json
 hyprscope_desktop     -> node bin/hyprscope.ts control desktop <action> --json
 ```
 
-An inline `plan` (and the one-step plan `hyprscope_act` builds) travels to the CLI on stdin, as `control run -`: the bundle writes no plan file and leaves nothing behind. A `planPath` is passed through as a file and read by the CLI itself.
+An inline `plan` travels to the CLI on stdin, as `control run -`: the bundle writes no plan file and leaves nothing behind. A `planPath` is passed through as a file and read by the CLI itself.
 
 ## Installing the bundle
 
@@ -34,6 +32,8 @@ The bundle lives in this repository and is installed into a DSH profile; it is n
 
 Installation is profile-wide and survives a restart, and it links the checkout rather than copying it, so the directory has to stay where it is. The installed bundle is `@local/dsh-hyprscope`, its plugin row is `hyprscope`, and the Plugins page lists it as **Desktop observation and control**.
 
+The install is the link. In a development checkout the web profile keeps it at `~/.dsh/profiles/web/node_modules/@local/dsh-hyprscope`, pointing at `<checkout>/plugins/dsh-hyprscope`; `$DSH_HOME` may be elsewhere, so read the link instead of assuming the path. Editing the checkout edits the file the next DSH process loads, not the copy the running Host already holds in memory.
+
 Three requirements have to hold:
 
 - The DSH Host runs as the same user, on the same machine, as the Hyprland session. The CLI finds the session through the per-user runtime directory, but it cannot cross a different uid or a container boundary.
@@ -42,24 +42,30 @@ Three requirements have to hold:
 
 After installation, the tools are available to sessions of that profile. To check the wiring, call `hyprscope_observe` with `kind: "doctor"`: it runs the read-only capability report. If the bundle cannot find the CLI, the plugin still activates, and the call fails with a message that names `projectDir`.
 
-## The eight tools
+`doctor` also shows which code is loaded. Besides the CLI's report, the result carries two additive top-level fields: `pluginVersion`, the `version` in the bundle's `package.json` read when the Host loaded the plugin, and `cliPath`, the absolute `bin/hyprscope.ts` the plugin spawns. Compare `pluginVersion` with the checkout's `plugins/dsh-hyprscope/package.json` and `cliPath` with the checkout you expect; a mismatch means the Host is running an older in-memory copy.
+
+## Editing the bundle
+
+The Host loads `index.js` into its own process and does not watch the file. Editing the bundle in the checkout changes what the next DSH process will load; the running Host keeps the code and the tool schemas it loaded at startup. **Restart DSH after every plugin edit** — reloading the profile or the page is not enough when the bundle was already loaded.
+
+Without the restart the old schema is what the model sees: a parameter added to a tool definition is absent from the schema, so passing it is silently ignored instead of rejected, and `doctor` keeps reporting the old `pluginVersion`. After restarting, call `hyprscope_observe` with `kind: "doctor"` and check that `pluginVersion` matches the checkout's `package.json` version and `cliPath` names the expected `bin/hyprscope.ts` before trusting a new parameter.
+
+## The six tools
 
 | Tool | Kind | What it does | Arguments |
 |---|---|---|---|
 | `hyprscope_observe` | Read-only | Reads the session, a snapshot or one collection; never calls `control` | `kind` (required): `doctor`, `state`, `active`, `clients`, `workspaces`, `monitors`, `layers` or `cursor`; `timeoutMs` |
 | `hyprscope_screenshot` | Read-only | Captures the layout, one monitor, one region or one window; refuses while the session reports locked | `scope` (`layout` by default, `monitor`, `region`), `monitor`, `region` (`{x,y,width,height}`), `window` (`{id}` or `{app}` or `{title}`, exactly one; off-screen windows included), `output` (absolute PNG path), `allowLocked` (`false` by default) |
 | `hyprscope_events` | Read-only | Subscribes to the compositor event stream for a bounded wait | `match`, `count` (1–50), `once`, `timeoutMs` (100–60000, `5000` by default) |
-| `hyprscope_lease` | Control | Requests, inspects or ends the control lease; `request` shows the host's consent card on the user desktop and waits | `action` (required): `request`, `status`, `done` or `panic`; `reason` (required for `request`); `ttlSeconds` (5–600, `120` by default) and `consentSeconds` (5–120, `45` by default), both for `request`; `language` (`zh` or `en`) for `request` |
-| `hyprscope_plan` | Control | Validates a plan as a dry run, or runs it after consent (the card lists the plan's description and steps); the only way these tools change the desktop | `action` (required): `validate` or `run`; exactly one of `planPath` or `plan`; `maxResumes` (0–3, `1` by default) and `consentSeconds` (5–120, `45` by default), both for `run`; `language` (`zh` or `en`) for `run` |
-| `hyprscope_act` | Control | Runs one action as a one-step plan: the submitted step is wrapped in a plan skeleton and submitted through the plan run path, so the same validation, consent card, executor and lease apply; there is no second execution path | `step` (required): one plan step object, `op` plus that op's fields, including any `requires`/`expect`; `reason` (required, 1–200 chars); `planId` (`act` by default), `budgetMs` (500–30000), `maxResumes` (0–3, `1` by default), `consentSeconds` (5–120, `45` by default) and `language` (`zh` or `en`) |
+| `hyprscope_plan` | Control | Validates a plan as a dry run, or runs it after consent (the card lists the plan's description and steps); the run itself is the consent step and blocks until it ends; the only way these tools change the desktop | `action` (required): `validate` or `run`; exactly one of `planPath` or `plan`; `maxResumes` (0–3, `1` by default) and `consentSeconds` (5–120, `45` by default), both for `run`; `language` (`zh` or `en`) for `run` |
 | `hyprscope_baseline` | Control | Inspects or measures the capability baseline that gates control; a probe that widens the accepted baseline also shows the host's confirmation card and returns after the host answers | `action` (required): `show` or `probe`; `diff` (`show` only), `readOnly` (`probe` only), `consentSeconds` (`probe` only); `language` (`zh` or `en`) for `probe` |
 | `hyprscope_desktop` | Lifecycle | Starts, attaches, inspects or stops an agent desktop; never moves a user window | `action` (required): `start`, `attach`, `status` or `stop`; `size` (`start` only), `runtimeDir` (required for `attach`), `consentSource` (`chat` by default, `card`; `start` and `attach` only) |
 
-The observation, screenshot, event, lease, plan and baseline tools also accept `desktop` (`user`, `agent` or `external`), `signature` and `runtimeDir`, and pass them to the CLI only when set; `hyprscope_desktop` is the exception, taking `signature` and `runtimeDir` only for `attach` and no `desktop` selector. `desktop` defaults to the user's desktop; the CLI's user resolution skips the desktop this repository started, so a managed desktop cannot silently become the user's. Omitted arguments keep the CLI defaults.
+The observation, screenshot, event, plan and baseline tools also accept `desktop` (`user`, `agent` or `external`), `signature` and `runtimeDir`, and pass them to the CLI only when set; `hyprscope_desktop` is the exception, taking `signature` and `runtimeDir` only for `attach` and no `desktop` selector. `desktop` defaults to the user's desktop; the CLI's user resolution skips the desktop this repository started, so a managed desktop cannot silently become the user's. Omitted arguments keep the CLI defaults.
 
-The four tools that can show a consent card take an optional `language` (`zh` or `en`) and pass it to the CLI as `--lang`: `hyprscope_lease` (`request`), `hyprscope_plan` (`run`), `hyprscope_act` and `hyprscope_baseline` (`probe`). Omitted keeps the CLI default (`zh`), an unsupported value fails before the CLI starts, and CLI stdout stays English.
+The two tools that can show a consent card take an optional `language` (`zh` or `en`) and pass it to the CLI as `--lang`: `hyprscope_plan` (`run`) and `hyprscope_baseline` (`probe`). Omitted keeps the CLI default (`zh`), an unsupported value fails before the CLI starts, and CLI stdout stays English.
 
-The three read-only tools are marked safe to run concurrently; the other five are not. Long results are compacted for the model: the text is capped at `maxRenderChars`, and an oversized list comes back as the leading items plus `total` and `omitted` counts.
+The three read-only tools are marked safe to run concurrently; the other three are not. Long results are compacted for the model: the text is capped at `maxRenderChars`, and an oversized list comes back as the leading items plus `total` and `omitted` counts. A compacted `doctor` report keeps its stable sections, including `pluginVersion` and `cliPath`.
 
 ## Capturing one window
 
@@ -72,6 +78,34 @@ The three read-only tools are marked safe to run concurrently; the other five ar
 The capture uses ext-image-copy-capture rather than `grim`'s copy of the composited output, so the window is captured even when it is on a hidden workspace or covered by another window. `window` is exclusive with `monitor` and `region`, and `scope` must be omitted or `layout`; any other combination is rejected before the CLI starts. The path is read-only like the other captures: no lease, plan or capability baseline is involved, and the locked-session refusal is unchanged.
 
 It needs the native window-capture helper, which the bundle does not build. Run `pnpm run build:capture` in the checkout once; it produces `bin/wl-capture`, and without it the CLI fails with a message that names the missing helper. The result keeps the same metadata, with `source.scope` set to `window` and `source.window` carrying `{identifier, appId, title}`.
+
+## Capturing a consent card from an agent session
+
+Verifying that a consent card renders needs two things at once: a CLI process that raises the card, and a screenshot taken while the card is on screen. Do not try to get both from one tool call. The two tools that show a card — `hyprscope_plan` (`run`) and `hyprscope_baseline` (`probe`) — intentionally block until the host answers or the card expires. That blocking is the consent contract, not an implementation accident: a plan run returns only after the run ends, so the model cannot fire and forget. Never make the tool asynchronous to make capture easier, and never answer the card from the agent side.
+
+Instead, run the CLI as a background job outside the tools, then take a timed screenshot with a read-only tool call:
+
+```sh
+# background job: a no-op plan raises the consent card; the run waits for the host
+printf '%s\n' '{"version":1,"id":"card-capture","reason":"card capture","steps":[{"op":"pause","ms":100}]}' > /tmp/hyprscope-card-plan.json
+node bin/hyprscope.ts control run /tmp/hyprscope-card-plan.json --consent 120 --lang en
+```
+
+The background command is the CLI form of `hyprscope_plan` action `run`; the tool itself blocks the same way, which is why the capture has to run outside it. Control must already be available: a missing or stale baseline fails with `CAPABILITY` before any card appears, so probe and let the host accept it first. From the agent session, after about a second, capture the layout:
+
+```
+hyprscope_screenshot(scope: "layout", output: "/tmp/hyprscope-card.png")
+```
+
+The screenshot is read-only, so repeating it is safe; timing is the only constraint: wait for the card to appear and stop before the consent window closes. Answer the card or let it expire afterwards and stop the background job; the agent must never approve it. The same recipe captures the baseline probe's acceptance card.
+
+## When a call fails
+
+A failed tool call keeps the CLI's stable error code and, for these known causes, appends one actionable next step instead of only raw stderr:
+
+- `CAPABILITY`: there is no accepted, current baseline — it is missing, stale, incomplete or unverified. Run `hyprscope_baseline` with `action: "probe"`, explain the evidence, and let the host answer the confirmation card the probe may show. Never answer that card yourself and never claim the baseline was accepted.
+- A read-only state directory (`EROFS`): the lease and baseline files cannot be written under the current `XDG_STATE_HOME`. Point it at a writable directory in the DSH Host environment and restart DSH. The accepted baseline lives in the real state home (`$XDG_STATE_HOME/hyprscope/baseline.json`, default `~/.local/state/hyprscope`), so an override is not a substitute for that file.
+- A usage or unknown-command failure: run `hyprscope_observe` with `kind: "doctor"` to inspect the loaded wiring, including `pluginVersion` and `cliPath`; if the bundle was edited, restart DSH so the new schema replaces the stale one.
 
 ## Configuration
 
@@ -106,15 +140,14 @@ The plugin adds tools; it adds no permission. Everything it can do is one of the
 
 - **Read-only tools stay read-only.** `hyprscope_observe`, `hyprscope_screenshot` and `hyprscope_events` spawn only the bare `hyprscope` commands, never `hyprscope control`. The CLI's read-only side never loads the lease, the plan executor, the injection path or the desktop lifecycle, and the plugin does not import repository code at all: it starts the CLI as a separate process. The plugin never calls `hyprctl` or `grim` itself, and it never uses a shell.
 - **Screenshots keep the locked default.** The screenshot tool refuses while the session reports locked; only a caller that sets `allowLocked: true` makes it pass `--allow-locked`. No retry or default flips it.
-- **Control starts with the lease.** `hyprscope_lease` action `request` is how these tools ask for control. On the user's desktop it shows the host's consent card and waits for the host's decision; the model cannot answer that card, and no tool parameter approves it. Inside an agent or external desktop the consent was given once at `desktop start` or `attach`, and the lease there is programmatic: still bound to the submitted plan and TTL, and never available on the user's desktop.
+- **A plan run is the consent step.** There is no separate lease request tool and no agent-side `done`/`panic`: `hyprscope_plan` action `run` shows the host's consent card on the user desktop and blocks until the run ends. On an agent or external desktop the consent was given once at `desktop start` or `attach`, and the run proceeds programmatically there. The model cannot answer the card, and no tool parameter approves it.
 - **Plans are the only way to change the desktop.** `hyprscope_plan` action `run` executes a validated plan after consent. The executor re-reads the lease and checks its plan binding before every mutating call, and the injection helper re-verifies the lease proof itself. `validate` is a dry run: no card, no desktop change. A run that faults returns the facts for replanning, not a bypass.
-- **Single-step actions are one-step plans.** `hyprscope_act` does not implement an action: it puts the submitted step into a plan skeleton (`version`, `id`, `reason`, `steps: [step]`) and submits it through the same run path. The CLI validates it exactly like a multi-step plan, the consent card shows the same one-step preview, and the executor and lease gates are unchanged. `requires`/`expect` stay the caller's responsibility; the wrapper generates no premises.
-- **Control is gated by an accepted capability baseline.** When the baseline is missing, still a draft, incomplete, stale or unverified, a plan run (including a dry run) or a lease request fails with `CAPABILITY` before any consent card appears. The error names the next step: run `hyprscope_baseline` with `action: "probe"` and explain the evidence. When the measurement widens the accepted baseline, that same call asks the desktop for a confirmation card carrying the verdict, the capability counts and the evidence hash, and returns only after the host clicks Allow or Deny; it writes nothing when the card is denied or expires (the draft stays pending, and another probe asks again), and the tool never answers the card itself. The probe itself takes a lease and injects only into its own scratch window.
+- **Control is gated by an accepted capability baseline.** When the baseline is missing, still a draft, incomplete, stale or unverified, a plan run (including a dry run) fails with `CAPABILITY` before any consent card appears. The error names the next step: run `hyprscope_baseline` with `action: "probe"` and explain the evidence. When the measurement widens the accepted baseline, that same call asks the desktop for a confirmation card carrying the verdict, the capability counts and the evidence hash, and returns only after the host clicks Allow or Deny; it writes nothing when the card is denied or expires (the draft stays pending, and another probe asks again), and the tool never answers the card itself. The probe itself takes a lease and injects only into its own scratch window.
 - **Agent desktops are lifecycle, not mutations.** `hyprscope_desktop` action `start` may only launch its own nested compositor, `attach` only records an instance the host names, and `stop` only ends the desktop it started. They never move, focus or close a window on the host's desktop; `status` is safe to poll.
 
 ## Limitations
 
-- **One process per call.** A call starts Node, loads the CLI, rediscovers the session and exits. That is what keeps the gate intact and the result honest, but it costs the process startup and discovery time on every call, and nothing is batched or kept warm. A plan is one call; issuing the same steps as separate tool calls is slower and no safer, and `hyprscope_act` is exactly that for a single step: one action, one consent card, one short lease.
+- **One process per call.** A call starts Node, loads the CLI, rediscovers the session and exits. That is what keeps the gate intact and the result honest, but it costs the process startup and discovery time on every call, and nothing is batched or kept warm. A plan is one call; issuing the same steps as separate tool calls is slower and no safer.
 - **Events is a bounded wait, not a subscription.** `hyprscope_events` keeps the call open until `count` or `once` is satisfied or `timeoutMs` runs out; an expired wait is a success with `timedOut: true`, not an error. A DSH session cannot use it to watch the desktop continuously.
 - **Results are compacted.** The text a model reads is capped at `maxRenderChars`: a long list is reduced to the leading items plus `total` and `omitted`, the `doctor` view drops `capabilities.wayland.globals`, and an oversized state falls back to a summary. The parsed value keeps the CLI's JSON for programmatic callers, but a model that reads only the text can miss fields; ask for a narrower `kind` when a list matters.
 - **It wraps a checkout, not a release.** The tools run this repository's `bin/hyprscope.ts` and depend on its `--json` shapes. The directory has to stay in place, and a CLI change can change what a tool returns. It also does not build the C helpers: plans that inject still need `bin/wl-inject`, the baseline probe still needs `bin/wl-scratch`, and a window capture needs `bin/wl-capture` from `pnpm run build:capture` (the quick start in [README.md](/README.md) covers the first two).

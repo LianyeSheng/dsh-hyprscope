@@ -43,19 +43,30 @@
 
 `reason` 和 `summary` 是宿主在同意卡片上先读到的行。卡片随后逐步列出每一步（`2. click · 在 foot 窗口 内 (0.5, 0.6) 点击左键`），由工具从已校验的计划渲染，因此宿主批准的是计划要做什么，而不是一串 op；超过十步的计划只显示前十步和剩余步数。整张卡片（包括这些步骤行）按 `--lang <zh|en>` 选择的语言渲染（默认 `zh`，或 `HYPRSCOPE_LANG` 环境变量；未知值按用法错误处理），CLI 的 stdout 仍是英文。`id`、`summary`、`workspace` 和 `interferencePromptMs` 可选；其他所有字段都有默认值，默认值在计划被校验时补上。
 
+`reason` 和 `summary` 也可以写成按语言分列的对象，而不是单个字符串：
+
+```json
+{
+  "reason": { "zh": "在终端输入一行并截图", "en": "Type one line and capture it" },
+  "summary": { "zh": "聚焦、点击、输入、截图", "en": "focus, click, type, capture" }
+}
+```
+
+对象可以只带 `zh`、只带 `en`，或者两者都带；每个变体遵守与纯字符串相同的长度规则。卡片按 `--lang` 渲染对应变体，缺少该变体时回退到另一个；租约的 `planSummary`、`--dry-run` 报告和派生恢复计划只保留一个字符串，先取英文，再取中文。空对象、非字符串变体、未知语言键或形状错误都会以 `PLAN_INVALID` 拒绝并给出出错路径，而纯字符串的行为保持不变。
+
 | 字段 | 规则 |
 |---|---|
 | `version` | 必须恰好为 `1` |
 | `id` | `[A-Za-z0-9._-]{1,64}`，默认 `plan` |
-| `reason` | 必填，1–200 个字符 |
-| `summary` | 可选自由文本，最多 200 个字符；仅供参考 |
+| `reason` | 必填，每个变体 1–200 个字符（纯字符串或 `{zh, en}`） |
+| `summary` | 可选自由文本，每个变体最多 200 个字符；仅供参考 |
 | `workspace` | 可选 `[A-Za-z0-9._-]{1,32}`；展示给宿主并复制进派生计划，不是隐式前提 |
 | `budgetMs` | 整数 500–30000，默认 8000；一次尝试的墙钟上限 |
 | `settleMs` | 整数 50–5000，默认 600；每个步骤的校验期限 |
 | `interferencePromptMs` | 整数 1000–60000，默认 12000；在尝试被终止之前，宿主回答干扰询问的时限 |
 | `steps` | 1–64 个条目，按顺序执行 |
 | `text` 操作 | 整个计划合计最多 4096 个字符 |
-| 未知字段 | 在每一层都被拒绝，因此校验正好覆盖被读取的全部内容 |
+| 未知字段 | 在每一层都被拒绝，并给出最接近的允许字段及其形状提示，因此校验正好覆盖被读取的全部内容 |
 
 计划文档不得携带 `lineage` 字段：只有工具从被中断的运行派生出的计划才有该字段（§6），作者撰写却声称有 lineage 的文档会被拒绝。上面的默认值由校验补上；一次运行只加载一次文档，执行的就是这份已校验的文档，之后不会再读文件。
 
@@ -129,6 +140,14 @@
 | `pause` | `ms` (1–1000) | 否 | — | 可选 | — | — |
 | `assert` | `requires` | 否 | — | 可选 | 禁止 | —（由谓词决定） |
 | `waitEvent` | `kind`, `timeoutMs` | 否 | — | 可选 | — | `events.socket` |
+
+目录本身也是一条命令：`hyprscope control ops` 每个 op 打印一行，`hyprscope control ops --json` 打印稳定的数组。两者都派生自 `src/plan/model.ts` 里的 `OP_SPECS` 与 `OP_FIELDS` 字段目录，因此 CLI 参考不会和校验接受的内容漂移。人类可读的一行形如
+
+```
+movePointer · needs none · requires inject.pointer · at:{x,y}|{window,point} [requires?, expect?]
+```
+
+必填字段写成 `name:shape`，可选字段放在方括号里并带 `?`，必填子句写成裸的 `requires`/`expect`，`assert` 会打印 `expect:forbidden`。JSON 数组按目录顺序每个 op 一项：`{op, mutating, idempotent, needsTarget, requires: [capability], fields: [{name, required, shape}]}`。`shape` 是一行形状提示，例如 `at:{x,y}|{window,point}`、`1..1000` 或 `activewindow|workspace|openwindow|closewindow`。带 `window` 的 `screenshot` 步骤仍由 `capture.window` 而不是该 op 列出的基础 `capture.grim` 能力门控。
 
 `moveWindow` 和 `resizeWindow` 是绝对的：`x`/`y` 与 `width`/`height` 是布局像素，发出的 Lua 调用不携带 `relative` 字段，而该可选字段本来会选择相对放置。窗口处于 fullscreen 时 compositor 会拒绝这两个调用，因此几何步骤必须先清除 fullscreen；§6 的恢复顺序在构造上做到了这一点。
 
@@ -270,7 +289,7 @@ fault 是数据，不是异常：执行器把它写入 `out/runs/<runId>/fault.j
 
 ## 8. 同意绑定
 
-`hyprscope control run` 只读取并校验一次计划——从文件，或从 stdin（`run -`）——然后把 `planBound: true`、summary 和卡片预览（`card`：一句描述加每步一行）一起传给 `requestLease`；同意卡片展示的就是这段描述和这些步骤行。在 `agent` 或 `external` 桌面里，人已经批准过这个桌面，所以运行改用程序化租约：不出现卡片，但计划绑定与 TTL、每次调用前的租约检查和 `wl-inject` 的证明都不变。`user` 保留逐次运行的卡片。无论走哪条路径，stale 或 unverified 的基线都会在进入同意之前以 `CAPABILITY` 拒绝。已校验的计划（补上默认值）按规范形式序列化（对象键递归排序、无空白），与运行一起存放在 `plan.json` 中，因此产物就是被批准的那份文档。
+`hyprscope control run` 只读取并校验一次计划——从文件，或从 stdin（`run -`）——然后把 `planBound: true`、summary 和卡片预览（`card`：一句描述加每步一行）一起传给 `requestLease`；同意卡片展示的就是这段描述和这些步骤行。在 `agent` 或 `external` 桌面里，人已经批准过这个桌面，所以运行改用程序化租约：不出现卡片，但计划绑定与 TTL、每次调用前的租约检查和 `wl-inject` 的证明都不变。`user` 保留逐次运行的卡片。无论走哪条路径，stale 或 unverified 的基线都会在进入同意之前以 `CAPABILITY` 拒绝。已校验的计划（补上默认值）按规范形式序列化（对象键递归排序、无空白），与运行一起存放在 `plan.json` 中，因此产物就是被批准的那份文档。带语言的 `reason`/`summary` 会原样保留在这份产物里；只有租约 summary、租约记录的 `reason` 和 dry-run 报告会把它解析成一个字符串（先英文，再中文）。
 
 每次会变更状态的调用之前，执行器都会重读租约并要求：阶段为 `granted`、同一 lease id、`planBound` 为 `true`、未过期。不匹配会以 `revoked` 结束运行。同一张卡片还批准上面的有界恢复额度；派生计划通过续期同一份租约覆盖，而不是第二张卡片，因此宿主批准一个计划，以及固定次数的机械尝试来重新主张它。同意、租约绑定和变更门控在今天都是正确性机制，而不是安全边界：在 broker 接管之前，租约状态存放在 agent 的 uid 下（§9、LEASE.md）。尤其是同意卡片与注入输入共享同一个席位，因此 helper 现在要求已授予的租约证明，并在卡片打开期间拒绝注入；一个自己写 Wayland 客户端的进程仍然可以绕过这一点，这正是 broker/uid 分离才是真正修复的原因。
 

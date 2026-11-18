@@ -13,6 +13,43 @@
  */
 
 import type { CapabilityId } from '../compat/types.ts'
+import type { RenderLanguage } from '../i18n.ts'
+
+/** Authored human text: one string for every language, or per-language variants. */
+export type PlanText = string | LocalizedPlanText
+
+/**
+ * Per-language variants of one authored line. Both members are optional, but a
+ * validated plan always carries at least one of them; the receipt resolves the
+ * missing one by falling back to the other.
+ */
+export interface LocalizedPlanText {
+  zh?: string
+  en?: string
+}
+
+/**
+ * Resolve authored text to one string for a machine-readable record.
+ * @param text Authored value, or null when the plan carried none.
+ * @returns A plain string unchanged; otherwise `en`, then `zh`, then the empty string.
+ */
+export function planTextString(text: PlanText | null | undefined): string {
+  if (text === null || text === undefined) return ''
+  if (typeof text === 'string') return text
+  return text.en ?? text.zh ?? ''
+}
+
+/**
+ * Resolve authored text for one render language.
+ * @param text Authored value.
+ * @param lang Language the consent card is rendered in.
+ * @returns The variant for that language, falling back to the other one.
+ */
+export function planTextFor(text: PlanText, lang: RenderLanguage): string {
+  if (typeof text === 'string') return text
+  const preferred = lang === 'zh' ? text.zh : text.en
+  return preferred ?? (lang === 'zh' ? text.en : text.zh) ?? ''
+}
 
 /** Window selector: an address wins; otherwise app/title must match exactly one client. */
 export interface WindowTarget {
@@ -232,8 +269,10 @@ export interface PlanLineage {
 export interface Plan {
   version: 1
   id: string
-  reason: string
-  summary: string | null
+  /** Authored reason: one string, or per-language variants. */
+  reason: PlanText
+  /** Authored summary: one string, per-language variants, or null. */
+  summary: PlanText | null
   workspace: string | null
   budgetMs: number
   settleMs: number
@@ -327,6 +366,120 @@ export const OP_SPECS: Readonly<Record<StepOp, OpSpec>> = {
     op: 'waitEvent', mutating: false, idempotent: true, requiresDeclared: false, requiresExpect: false,
     needsTarget: false, requires: ['events.socket'],
   },
+} as const
+
+/**
+ * One field an operation accepts: its name, whether a step must carry it, a
+ * one-line shape hint, and an example used by validation errors.
+ */
+export interface OpFieldSpec {
+  /** Field name as written in a step. */
+  name: string
+  /** Whether a step must carry the field. */
+  required: boolean
+  /** One-line shape hint for the CLI catalog and validation messages. */
+  shape: string
+  /** JSON member showing the correct shape, e.g. a top-level movePointer x/y hint names at. */
+  example: string
+  /** True when the op semantics forbid the field (today: assert + expect). */
+  forbidden?: boolean
+}
+
+/**
+ * Field catalog: every field each operation accepts, derived from the same
+ * code-owned tables that validation and the CLI consume, so they cannot drift.
+ * The requires and expect entries describe the two clause fields; their
+ * required flag mirrors OpSpec.requiresDeclared / OpSpec.requiresExpect.
+ */
+export const OP_FIELDS: Readonly<Record<StepOp, readonly OpFieldSpec[]>> = {
+  movePointer: [
+    { name: 'at', required: true, shape: '{x,y}|{window,point}', example: '"at": {"x": 400, "y": 300}' },
+    { name: 'requires', required: false, shape: '[predicate]', example: '"requires": [{"kind": "window.focused", "target": {"app": "foot"}}]' },
+    { name: 'expect', required: false, shape: '[predicate]', example: '"expect": [{"kind": "window.focused", "target": {"app": "foot"}}]' },
+  ],
+  click: [
+    { name: 'at', required: true, shape: '{x,y}|{window,point}', example: '"at": {"x": 400, "y": 300}' },
+    { name: 'button', required: false, shape: 'left|right|middle|back|forward', example: '"button": "left"' },
+    { name: 'count', required: false, shape: '1..2', example: '"count": 1' },
+    { name: 'requires', required: true, shape: '[predicate]', example: '"requires": [{"kind": "window.focused", "target": {"app": "foot"}}]' },
+    { name: 'expect', required: true, shape: '[predicate]', example: '"expect": [{"kind": "window.focused", "target": {"app": "foot"}}]' },
+  ],
+  scroll: [
+    { name: 'value', required: true, shape: '-1000..1000', example: '"value": -3' },
+    { name: 'axis', required: true, shape: 'vertical|horizontal', example: '"axis": "vertical"' },
+    { name: 'requires', required: true, shape: '[predicate]', example: '"requires": [{"kind": "window.focused", "target": {"app": "foot"}}]' },
+    { name: 'expect', required: true, shape: '[predicate]', example: '"expect": [{"kind": "region.changed", "target": {"app": "foot"}, "rect": [0, 0, 1, 1]}]' },
+  ],
+  chord: [
+    { name: 'keys', required: true, shape: 'string[1..5]', example: '"keys": ["CTRL", "c"]' },
+    { name: 'requires', required: true, shape: '[predicate]', example: '"requires": [{"kind": "window.focused", "target": {"app": "foot"}}]' },
+    { name: 'expect', required: true, shape: '[predicate]', example: '"expect": [{"kind": "window.focused", "target": {"app": "foot"}}]' },
+  ],
+  text: [
+    { name: 'text', required: true, shape: 'string[1..2000]', example: '"text": "hello"' },
+    { name: 'requires', required: true, shape: '[predicate]', example: '"requires": [{"kind": "window.focused", "target": {"app": "foot"}}]' },
+    { name: 'expect', required: true, shape: '[predicate]', example: '"expect": [{"kind": "region.changed", "target": {"app": "foot"}, "rect": [0, 0, 1, 1]}]' },
+  ],
+  focusWindow: [
+    { name: 'target', required: true, shape: '{id?|app?|title?}', example: '"target": {"app": "foot"}' },
+    { name: 'requires', required: true, shape: '[predicate]', example: '"requires": [{"kind": "window.exists", "target": {"app": "foot"}}]' },
+    { name: 'expect', required: false, shape: '[predicate]', example: '"expect": [{"kind": "window.focused", "target": {"app": "foot"}}]' },
+  ],
+  workspace: [
+    { name: 'name', required: true, shape: 'string[1..32]', example: '"name": "2"' },
+    { name: 'requires', required: false, shape: '[predicate]', example: '"requires": [{"kind": "workspace.active", "name": "2"}]' },
+    { name: 'expect', required: false, shape: '[predicate]', example: '"expect": [{"kind": "workspace.active", "name": "2"}]' },
+  ],
+  moveWindow: [
+    { name: 'target', required: true, shape: '{id?|app?|title?}', example: '"target": {"app": "foot"}' },
+    { name: 'x', required: true, shape: 'integer', example: '"x": 400' },
+    { name: 'y', required: true, shape: 'integer', example: '"y": 300' },
+    { name: 'requires', required: true, shape: '[predicate]', example: '"requires": [{"kind": "window.exists", "target": {"app": "foot"}}]' },
+    { name: 'expect', required: false, shape: '[predicate]', example: '"expect": [{"kind": "window.geometry", "target": {"app": "foot"}, "x": 400, "y": 300}]' },
+  ],
+  resizeWindow: [
+    { name: 'target', required: true, shape: '{id?|app?|title?}', example: '"target": {"app": "foot"}' },
+    { name: 'width', required: true, shape: 'integer', example: '"width": 800' },
+    { name: 'height', required: true, shape: 'integer', example: '"height": 600' },
+    { name: 'requires', required: true, shape: '[predicate]', example: '"requires": [{"kind": "window.exists", "target": {"app": "foot"}}]' },
+    { name: 'expect', required: false, shape: '[predicate]', example: '"expect": [{"kind": "window.geometry", "target": {"app": "foot"}, "width": 800, "height": 600}]' },
+  ],
+  floatWindow: [
+    { name: 'target', required: true, shape: '{id?|app?|title?}', example: '"target": {"app": "foot"}' },
+    { name: 'floating', required: false, shape: 'boolean', example: '"floating": true' },
+    { name: 'pinned', required: false, shape: 'boolean', example: '"pinned": false' },
+    { name: 'requires', required: true, shape: '[predicate]', example: '"requires": [{"kind": "window.exists", "target": {"app": "foot"}}]' },
+    { name: 'expect', required: false, shape: '[predicate]', example: '"expect": [{"kind": "window.state", "target": {"app": "foot"}, "floating": true}]' },
+  ],
+  fullscreenWindow: [
+    { name: 'target', required: true, shape: '{id?|app?|title?}', example: '"target": {"app": "foot"}' },
+    { name: 'internal', required: false, shape: '0|1|2', example: '"internal": 1' },
+    { name: 'client', required: false, shape: '0|1|2', example: '"client": 2' },
+    { name: 'requires', required: true, shape: '[predicate]', example: '"requires": [{"kind": "window.exists", "target": {"app": "foot"}}]' },
+    { name: 'expect', required: false, shape: '[predicate]', example: '"expect": [{"kind": "window.state", "target": {"app": "foot"}, "fullscreen": 1}]' },
+  ],
+  screenshot: [
+    { name: 'label', required: false, shape: 'string[0..40]', example: '"label": "panel"' },
+    { name: 'region', required: false, shape: '{window,rect}', example: '"region": {"window": {"app": "foot"}, "rect": [0, 0, 1, 1]}' },
+    { name: 'window', required: false, shape: '{id?|app?|title?}', example: '"window": {"app": "foot"}' },
+    { name: 'requires', required: false, shape: '[predicate]', example: '"requires": [{"kind": "window.exists", "target": {"app": "foot"}}]' },
+    { name: 'expect', required: false, shape: '[predicate]', example: '"expect": [{"kind": "region.changed", "target": {"app": "foot"}, "rect": [0, 0, 1, 1]}]' },
+  ],
+  pause: [
+    { name: 'ms', required: true, shape: '1..1000', example: '"ms": 100' },
+    { name: 'requires', required: false, shape: '[predicate]', example: '"requires": [{"kind": "window.exists", "target": {"app": "foot"}}]' },
+    { name: 'expect', required: false, shape: '[predicate]', example: '"expect": [{"kind": "window.focused", "target": {"app": "foot"}}]' },
+  ],
+  assert: [
+    { name: 'requires', required: false, shape: '[predicate]', example: '"requires": [{"kind": "window.focused", "target": {"app": "foot"}}]' },
+    { name: 'expect', required: false, shape: 'forbidden', example: '"expect": []', forbidden: true },
+  ],
+  waitEvent: [
+    { name: 'kind', required: true, shape: 'activewindow|workspace|openwindow|closewindow', example: '"kind": "activewindow"' },
+    { name: 'timeoutMs', required: false, shape: '100..5000', example: '"timeoutMs": 500' },
+    { name: 'requires', required: false, shape: '[predicate]', example: '"requires": [{"kind": "workspace.active", "name": "2"}]' },
+    { name: 'expect', required: false, shape: '[predicate]', example: '"expect": [{"kind": "workspace.active", "name": "2"}]' },
+  ],
 } as const
 
 /** Numeric and structural bounds enforced by validation. */

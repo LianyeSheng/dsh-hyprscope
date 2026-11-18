@@ -23,7 +23,7 @@ pnpm run typecheck
 
 `pnpm install` 装的是 TypeScript 和 Node 类型声明这两个开发依赖，运行时依旧零依赖；代码主体是 TypeScript，Node 直接执行 `.ts`，没有构建步骤。
 
-`pnpm test` 跑单元测试和实时测试，没有 Hyprland 时实时那部分自动跳过；`pnpm run doctor` 打印会话发现结果、compositor 版本和可观察项；`pnpm run typecheck` 只做类型检查，不产出文件。
+`pnpm test` 跑单元测试和实时测试，没有 Hyprland 时实时那部分自动跳过；`pnpm run doctor` 打印会话发现结果、compositor 版本、可观察项，以及它不碰桌面就能检查的控制运行时（浮层二进制、状态目录可写性、窗口截取语义）；`pnpm run typecheck` 只做类型检查，不产出文件。
 
 Wayland 探针是可选的，编译之后 `doctor` 才会多报 seat 数量和注入相关的协议：
 
@@ -53,7 +53,7 @@ node bin/hyprscope.ts control baseline --probe          # measure this machine; 
 node bin/hyprscope.ts control baseline --show           # what was measured, what is missing, the diff
 ```
 
-在这份文件通过验收之前，`hyprscope control run` 和 `hyprscope control request` 会在同意卡片出现之前就拒绝；只读的 `hyprscope` 不受影响。
+在这份文件通过验收之前，`hyprscope control run` 会在同意卡片出现之前就拒绝；只读的 `hyprscope` 不受影响。
 
 日常命令走入口脚本：
 
@@ -71,19 +71,19 @@ node bin/hyprscope.ts events --match 'workspace|activewindow' --count 2 --timeou
 `hyprscope` 只做观察、不改桌面；要操作桌面时使用 `hyprscope control`，它是一套带租约门控的工具和行为控制逻辑，Agent 使用它来操控界面，这样迫使 Agent 不会做出预期之外的行为，同时更加地高效（见批执行一节）：
 ```sh
 node bin/hyprscope.ts control install-bind                     # install once: SUPER + ALT + ESC revokes at any time
-node bin/hyprscope.ts control request --reason "填写登录表单" --ttl 120
-node bin/hyprscope.ts control done                             # the agent hands control back when done
+node bin/hyprscope.ts control run plans/live-terminal.json     # show the consent card, execute after approval, release when it ends
+node bin/hyprscope.ts control status                           # read-only: current phase and remaining time
 ```
 
 如果兜底快捷键是在 CLI 合并之前装的，需要重装：旧 bind 指向已删除的 `bin/hyprlease.ts`。`hyprscope control uninstall-bind` 仍能识别旧标记并删除它，随后 `install-bind` 写入 `hyprscope control panic` 命令。合并前启动的受管桌面，其生成的应急键也有同样问题；停掉再启动即可。
 
-`request` 会在屏幕中央弹一张同意卡片（允许 / 拒绝，45 秒不选自动拒绝）。批准后卡片缩成顶部横幅，显示剩余时间，右侧有「立即收回」。撤销控制权有四种方法：Agent 调 `done`、用户按 `SUPER + ALT + ESC`、点横幅按钮、或者 TTL 到期。卡片和浮层外观跟随 `--lang <zh|en>`（默认中文，`HYPRSCOPE_LANG` 作为后备），CLI 的 stdout 仍是英文。
+`run` 会在屏幕中央弹一张同意卡片（允许 / 拒绝，45 秒不选自动拒绝）。批准后卡片缩成顶部横幅，显示剩余时间，右侧有「立即收回」，run 执行计划并在结束时自动交还控制权，所以没有单独的申请和交还步骤。在此之前也可以撤销：用户按 `SUPER + ALT + ESC`、点横幅按钮，或者 TTL 到期。卡片和浮层外观跟随 `--lang <zh|en>`（默认中文，`HYPRSCOPE_LANG` 作为后备），CLI 的 stdout 仍是英文。
 
 由于 wayland 设计支出本身就是为了给单用户使用，所以无法在 Agent 控制期间直接屏蔽用户的操作，所以物理键鼠不会被冻结。这条边界的完整解释和兜底链条在 [docs/LEASE.zh.md](/docs/LEASE.zh.md)。
 
 ### agent 桌面
 
-`hyprscope control desktop start` 会为这个 agent 起一个嵌套 Hyprland，在宿主桌面上显示为一个窗口。这个嵌套 compositor 是真正的 Hyprland，有自己的监视器、工作区和客户端，但它与 agent 共用同一个 uid 和同一个文件系统：分开的是桌面，不是权限。人只在 `desktop start` 或 `desktop attach` 时同意一次；进入这个桌面后，`run`、`request` 和 `baseline --probe` 拿的是程序化租约，不再为每次运行弹卡，租约照旧绑定这次提交的计划和 TTL，也照旧由 `wl-inject` 校验。`desktop status` 重新核对 pid、实例目录和 socket，`desktop attach --runtime-dir <dir>` 挂接用户指定的实例，`desktop stop` 结束工具启动的桌面（挂接来的只删记录）。
+`hyprscope control desktop start` 会为这个 agent 起一个嵌套 Hyprland，在宿主桌面上显示为一个窗口。这个嵌套 compositor 是真正的 Hyprland，有自己的监视器、工作区和客户端，但它与 agent 共用同一个 uid 和同一个文件系统：分开的是桌面，不是权限。人只在 `desktop start` 或 `desktop attach` 时同意一次；进入这个桌面后，`run` 和 `baseline --probe` 拿的是程序化租约，不再为每次运行弹卡，租约照旧绑定这次提交的计划和 TTL，也照旧由 `wl-inject` 校验。`desktop status` 重新核对 pid、实例目录和 socket，`desktop attach --runtime-dir <dir>` 挂接用户指定的实例，`desktop stop` 结束工具启动的桌面（挂接来的只删记录）。
 
 ```sh
 node bin/hyprscope.ts control desktop start --size 1280x800   # one nested Hyprland window
@@ -113,7 +113,7 @@ node bin/hyprscope.ts control run plans/live-terminal.json             # show th
 
 | 命令 | 作用 |
 |---|---|
-| `doctor` | 会话发现路径、compositor 版本、可观察项、Wayland 全局对象 |
+| `doctor` | 会话发现路径、compositor 版本、可观察项、Wayland 全局对象，以及控制运行时（`environment`：浮层二进制、状态目录可写性、`capture.window` 语义） |
 | `state` | 一次快照：焦点 + monitors + workspaces + clients + layers + cursor + lock |
 | `active` | 只取活动窗口和工作区 |
 | `clients` / `workspaces` / `monitors` / `layers` / `cursor` | 单项读取 |
@@ -121,17 +121,17 @@ node bin/hyprscope.ts control run plans/live-terminal.json             # show th
 | `events` | 订阅 compositor 事件流，可用 `--match`、`--once`、`--count`、`--timeout` |
 | `hyprscope control run <plan.json \| ->` | 校验计划、把同意绑定到这次提交的计划、执行并交还控制 |
 | `hyprscope control baseline --probe / --show` | 测量这台机器；结果比已验收基线更宽时，同一条命令会请宿主在确认卡上确认，并在允许后写入新基线；`--show` 复核证据和已验收基线 |
-| `hyprscope control request / done / panic / status` | 申请、结束、强制收回、查看控制租约 |
+| `hyprscope control status / panic` | 查看控制租约；`panic` 是兜底快捷键用的紧急收回，绝不是 agent 工作流的一步 |
 | `hyprscope control desktop start / attach / status / stop` | 启动嵌套 agent 桌面、挂接已有实例、查看两者状态，或停止 |
 | `hyprscope control install-bind / uninstall-bind` | 安装或移除 `SUPER + ALT + ESC` 兜底 |
 
-通用选项：`--json`、`--desktop <user|agent|external>`、`--signature <sig>`、`--runtime-dir <dir>`、`-h`、`-v`；`hyprscope` 另外接受 `--timeout <ms>`。`--desktop` 选命令作用在哪个实例上；观察命令以及 `hyprscope control run`、`request`、`status`、`done`、`panic`、`baseline` 都接受它，省略即用户桌面。`hyprscope control` 的每个控制命令还接受 `--lang <zh|en>`：它选择同意卡或确认卡、以及浮层的语言（默认 `zh`，可用 `HYPRSCOPE_LANG` 环境变量；未知值按用法错误处理），CLI 的 stdout 仍是英文。脚本里请用 `--json`，人类可读输出只求顺眼，列对齐和措辞不保证稳定；参数错退出码 2，其它失败退出码 1。
+通用选项：`--json`、`--desktop <user|agent|external>`、`--signature <sig>`、`--runtime-dir <dir>`、`-h`、`-v`；`hyprscope` 另外接受 `--timeout <ms>`。`--desktop` 选命令作用在哪个实例上；观察命令以及 `hyprscope control run`、`status`、`panic`、`ops`、`baseline` 都接受它，省略即用户桌面。`hyprscope control` 的每个控制命令还接受 `--lang <zh|en>`：它选择同意卡或确认卡、以及浮层的语言（默认 `zh`，可用 `HYPRSCOPE_LANG` 环境变量；未知值按用法错误处理），CLI 的 stdout 仍是英文。脚本里请用 `--json`，人类可读输出只求顺眼，列对齐和措辞不保证稳定；参数错退出码 2，其它失败退出码 1。
 
-截图有四种取法：默认截整个布局，`--monitor NAME` 只截一个输出，`--region x,y,w,h` 用全局布局坐标（`grim` 要的是 `X,Y WxH`，转换由工具做），`--window-id <Hyprland 地址或 foreign-toplevel 标识>` / `--window-app <class>` / `--window-title <精确标题>` 截取单个窗口，窗口位于其他工作区或被遮住也能截。窗口截图需要编译好的 `bin/wl-capture`（`pnpm run build:capture`），并且只能截已映射的窗口：最小化或未映射的窗口会被拒绝，光标不会合成进图像，带 `no_screen_share` 规则或截图权限被拒绝的窗口会得到 compositor 的拒答占位图。会话报告锁定时截图默认拒绝，传 `--allow-locked` 才放行；输出默认写到缓存目录的 `hyprscope/` 下，`--output` 可以换地方。
+截图有四种取法：默认截整个布局，`--monitor NAME` 只截一个输出，`--region x,y,w,h` 用全局布局坐标（`grim` 要的是 `X,Y WxH`，转换由工具做），`--window-id <Hyprland 地址或 foreign-toplevel 标识>` / `--window-app <class>` / `--window-title <精确标题>` 截取单个窗口，窗口位于其他工作区或被遮住也能截。窗口截图需要编译好的 `bin/wl-capture`（`pnpm run build:capture`），并且只能截已映射的窗口：最小化或未映射的窗口会被拒绝，光标不会合成进图像，带 `no_screen_share` 规则或截图权限被拒绝的窗口会得到 compositor 的拒答占位图。`--window-app` / `--window-title` 有歧义时以退出码 2 结束并列出候选（地址、application id、工作区、在当前活动工作区还是屏幕外），提示用 `--window-id` 指定；显式 `--output` 必须位于已存在且可写的目录，截取前会预检（`SCREENSHOT_FAILED` 会提示传一个可写的 `--output`）。会话报告锁定时截图默认拒绝，传 `--allow-locked` 才放行；输出默认写到缓存目录的 `hyprscope/` 下，`--output` 可以换地方。
 
 ### DSH 插件
 
-`plugins/dsh-hyprscope/` 是本项目原生、开箱即用的 DSH Host 插件组合包（bundle），把这些命令变成模型可调用的八个工具，DSH 会话不用再自己拼 `node bin/hyprscope.ts ... --json` 命令。`hyprscope_observe`、`hyprscope_screenshot` 和 `hyprscope_events` 只读桌面；`hyprscope_lease`、`hyprscope_plan`、`hyprscope_act`、`hyprscope_baseline` 和 `hyprscope_desktop` 走 `hyprscope control`；`hyprscope_act` 把单个动作当作一步计划执行。观察不需要同意；改变桌面仍然要宿主在控制租约里同意，并且要有一份已验收的能力基线，插件没有加绕开它们的办法。会弹同意卡的工具还接受可选的 `language`（`zh` 或 `en`；省略即沿用中文默认）：`hyprscope_lease` 的 `request`、`hyprscope_plan` 的 `run`、`hyprscope_act` 和 `hyprscope_baseline` 的 `probe`。
+`plugins/dsh-hyprscope/` 是本项目原生、开箱即用的 DSH Host 插件组合包（bundle），把这些命令变成模型可调用的六个工具，DSH 会话不用再自己拼 `node bin/hyprscope.ts ... --json` 命令。`hyprscope_observe`、`hyprscope_screenshot` 和 `hyprscope_events` 只读桌面；`hyprscope_plan`、`hyprscope_baseline` 和 `hyprscope_desktop` 走 `hyprscope control`；一次计划运行就是同意步骤，也覆盖了以前单步动作的用法。观察不需要同意；改变桌面仍然要宿主在控制租约里同意，并且要有一份已验收的能力基线，插件没有加绕开它们的办法。会弹同意卡的工具还接受可选的 `language`（`zh` 或 `en`；省略即沿用中文默认）：`hyprscope_plan` 的 `run` 和 `hyprscope_baseline` 的 `probe`。
 
 在**插件**页选择**添加插件**，填入绝对目录 `/home/jw/workspace/dsh-hyprscope/plugins/dsh-hyprscope`；或者让 DSH 里的 agent 用 `plugin_manager` 的 `install_bundle` 装同一个目录。组合包只在 Linux 上加载，需要 checkout 和 Node 22 与 DSH 在同一台机器上。完整的工具面、配置键和限制在 [docs/DSH-PLUGIN.zh.md](/docs/DSH-PLUGIN.zh.md)。
 
@@ -152,7 +152,7 @@ agent 桌面——给 agent 一个自己的嵌套 Hyprland——已经实现；�
 - 单窗口截图要求 compositor 提供 `ext-image-copy-capture`、`ext-foreign-toplevel-list` 和 `ext-image-capture-source`，并且编译好 `bin/wl-capture`；helper 缺失时命令会提示运行 `pnpm run build:capture`，compositor 没有这些协议就截不了窗口。布局、监视器和区域截图仍然走 `grim`。
 - 只能截已映射的窗口：最小化或未映射的窗口会被拒绝，光标不会合成进图像，带 `no_screen_share` 规则或截图权限被拒绝的窗口会得到 compositor 的拒答占位图。
 - 租约状态和执行器都跑在 agent 同一个 uid 下，租约绑定和门控目前是正确性机制，不是安全边界；要变成真边界得把租约状态挪到独立 broker（见 `docs/LEASE.md`）。
-- 能力基线要由人验收之后控制才可用，而基线只反映上一次探针的结果：`doctor` 会报告漂移，`run` / `request` 遇到 stale 或 unverified 的基线会以 `CAPABILITY` 拒绝。换机器、升 Hyprland 或改配置之后要重跑 `hyprscope control baseline --probe`；旧版本写下的基线没有 effective 值，读出来是 `unverified`，需要重新探一次；放宽时探针会请宿主确认新基线。
+- 能力基线要由人验收之后控制才可用，而基线只反映上一次探针的结果：`doctor` 会报告漂移，`run` 遇到 stale 或 unverified 的基线会以 `CAPABILITY` 拒绝。换机器、升 Hyprland 或改配置之后要重跑 `hyprscope control baseline --probe`；旧版本写下的基线没有 effective 值，读出来是 `unverified`，需要重新探一次；放宽时探针会请宿主确认新基线。
 - agent 桌面是宿主上的一个窗口，不是另一台机器：它和 agent 共用 uid 和文件系统，嵌套输出跟着宿主窗口走（`--size` 只是请求，不是保证），关掉这个窗口就会销毁桌面。正在里面执行的运行会以 `target.desktop-closed` fault。
 - agent 桌面默认不跨 DSH 重启存活；新的 DSH 会话要自己起一个，或者挂接已有的实例。
 - 改动运行中 agent 桌面的生成配置会让它的基线变成 stale，而 `baseline --probe` 拒绝测量已经变化的实时配置；先重启桌面，再跑一次探针（放宽时探针会请宿主确认）。

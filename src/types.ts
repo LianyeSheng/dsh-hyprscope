@@ -342,6 +342,41 @@ export interface DoctorBaseline {
   warnings: string[]
 }
 
+/** Quickshell runtime the consent overlay starts; doctor looks it up and never runs it. */
+export interface DoctorOverlayRuntime {
+  /** Configured binary name or path: `HYPRSCOPE_QUICKSHELL` when set, else `quickshell`. */
+  binary: string
+  /** Resolved executable path, or null when it is not on PATH. */
+  path: string | null
+  available: boolean
+  /** Where the configured name came from. */
+  source: 'default' | 'environment'
+  /** Actionable note when the binary is missing; null when it was found. */
+  hint: string | null
+}
+
+/** State directory doctor inspects without creating or writing anything. */
+export interface DoctorStateDirectory {
+  /** `$XDG_STATE_HOME/hyprscope` (or `~/.local/state/hyprscope`). */
+  path: string
+  /** Whether the directory itself exists. */
+  exists: boolean
+  /** Whether a file could be created there; null when it cannot be determined. */
+  writable: boolean | null
+  /** Path probed for writability: the directory itself or its nearest existing ancestor. */
+  probe: string
+  /** Why writability is false or unknown; null when the directory is writable. */
+  reason: string | null
+}
+
+/** Environment facts doctor reports without touching the desktop. */
+export interface DoctorEnvironment {
+  overlay: DoctorOverlayRuntime
+  state: DoctorStateDirectory
+  /** How window capture sees the desktop. */
+  capture: { window: string }
+}
+
 /** Report printed by `hyprscope doctor`. */
 export interface DoctorReport {
   readOnly: true
@@ -359,6 +394,7 @@ export interface DoctorReport {
   inventory: { monitors: number; workspaces: number; clients: number; layers: number }
   target: { kind: 'user' | 'agent' | 'external'; signature: string; managed: boolean }
   capabilities: { observation: string[]; action: string[]; wayland: WaylandProbe | null }
+  environment: DoctorEnvironment
   baseline: DoctorBaseline
   isolation: Isolation
   limitations: string[]

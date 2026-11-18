@@ -29,9 +29,7 @@ const TOOL_NAMES = [
   'hyprscope_observe',
   'hyprscope_screenshot',
   'hyprscope_events',
-  'hyprscope_lease',
   'hyprscope_plan',
-  'hyprscope_act',
   'hyprscope_baseline',
   'hyprscope_desktop',
 ]
@@ -40,9 +38,7 @@ const TOOL_NAMES = [
 const READ_ONLY_TOOLS = ['hyprscope_observe', 'hyprscope_screenshot', 'hyprscope_events']
 
 /** Tool names that must omit isConcurrencySafe (default exclusive). */
-const EXCLUSIVE_TOOLS = [
-  'hyprscope_lease', 'hyprscope_plan', 'hyprscope_act', 'hyprscope_baseline', 'hyprscope_desktop',
-]
+const EXCLUSIVE_TOOLS = ['hyprscope_plan', 'hyprscope_baseline', 'hyprscope_desktop']
 
 /** A valid 1x1 PNG (70 bytes) written by the fake CLI for screenshot calls. */
 const PNG_BYTES = Buffer.from(
@@ -429,10 +425,16 @@ const DOCTOR_REPORT = {
   limitations: ['read-only observation only'],
 }
 
-/** The eight stable doctor sections kept when the report is too long. */
+/** The stable doctor sections kept when the report is too long. */
 const DOCTOR_SUMMARY_KEYS = [
   'discovery', 'compositor', 'inventory', 'target', 'capabilities', 'baseline', 'isolation', 'limitations',
+  'pluginVersion', 'cliPath',
 ]
+
+/** Version the loaded bundle must report; read from the bundle's own package.json. */
+const PLUGIN_PACKAGE_VERSION = JSON.parse(
+  readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+).version
 
 /** Canonical active-window value returned by the fake CLI. */
 const ACTIVE_VALUE = {
@@ -742,13 +744,17 @@ test('the plugin module exposes the Host bundle contract', () => {
   assert.equal(typeof plugin.apply, 'function')
 })
 
-test('apply registers exactly the eight hyprscope tools and keeps their disposers', (t) => {
+test('apply registers exactly the six hyprscope tools and keeps their disposers', (t) => {
   const harness = makeHarness(t)
   assert.deepEqual(harness.registered.map((definition) => definition.name), TOOL_NAMES)
   assert.deepEqual([...harness.definitions.keys()], TOOL_NAMES)
-  assert.equal(harness.registered.length, 8)
-  assert.equal(harness.disposers.length, 8)
+  assert.equal(harness.registered.length, 6)
+  assert.equal(harness.disposers.length, 6)
   for (const dispose of harness.disposers) assert.equal(typeof dispose, 'function')
+  // The removed tools must not come back: consent belongs to plan run itself.
+  for (const removed of ['hyprscope_lease', 'hyprscope_act']) {
+    assert.equal(harness.definitions.has(removed), false, `${removed} must not be registered`)
+  }
 })
 
 test('every tool definition is a raw object with the supported JSON-schema subset', (t) => {
@@ -772,26 +778,18 @@ test('every tool definition is a raw object with the supported JSON-schema subse
     hyprscope_observe: ['kind'],
     hyprscope_screenshot: [],
     hyprscope_events: [],
-    hyprscope_lease: ['action'],
     hyprscope_plan: ['action'],
-    hyprscope_act: ['step', 'reason'],
     hyprscope_baseline: ['action'],
     hyprscope_desktop: ['action'],
   }
   for (const [name, required] of Object.entries(requiredByTool)) {
     assert.deepEqual(harness.definitions.get(name).parameters.required, required)
   }
-  // hyprscope_act carries exactly the documented parameter set; in particular
-  // it has no desktop selector and no accept switch.
-  assert.deepEqual(
-    Object.keys(harness.definitions.get('hyprscope_act').parameters.properties),
-    ['step', 'reason', 'planId', 'budgetMs', 'maxResumes', 'consentSeconds', 'language'],
-  )
-  const stepSchema = harness.definitions.get('hyprscope_act').parameters.properties.step
-  assert.equal(stepSchema.type, 'object')
-  assert.deepEqual(stepSchema.required, ['op'])
-  assert.equal(stepSchema.additionalProperties, true)
-  assert.equal(stepSchema.properties.op.type, 'string')
+  // No tool accepts a consent answer: plan run and baseline probe carry the
+  // host's card, and nothing here can approve it.
+  for (const name of TOOL_NAMES) {
+    assert.equal(Object.hasOwn(harness.definitions.get(name).parameters.properties, 'accept'), false)
+  }
 })
 
 test('language selects the card and overlay rendering language', async (t) => {
@@ -802,11 +800,11 @@ test('language selects the card and overlay rendering language', async (t) => {
   assert.deepEqual(harness.lastArgv(), [
     'control', 'baseline', '--probe', '--consent', '45', '--lang', 'en', '--json',
   ])
-  await invoke(harness, 'hyprscope_lease', { action: 'request', reason: 'demo', language: 'zh' })
+  await invoke(harness, 'hyprscope_plan', { action: 'run', plan: { version: 1, steps: [] }, language: 'zh' })
   assert.deepEqual(harness.lastArgv(), [
-    'control', 'request', '--reason', 'demo', '--ttl', '120', '--consent', '45', '--lang', 'zh', '--json',
+    'control', 'run', '-', '--consent', '45', '--max-resumes', '1', '--lang', 'zh', '--json',
   ])
-  for (const name of ['hyprscope_lease', 'hyprscope_plan', 'hyprscope_act', 'hyprscope_baseline']) {
+  for (const name of ['hyprscope_plan', 'hyprscope_baseline']) {
     const definition = harness.definitions.get(name)
     assert.deepEqual(definition.parameters.properties.language.enum, ['zh', 'en'],
       `${name} exposes the render language enum`)
@@ -814,7 +812,7 @@ test('language selects the card and overlay rendering language', async (t) => {
   // An unknown language fails locally, before any CLI process is spawned.
   const before = harness.calls().length
   await assert.rejects(
-    invoke(harness, 'hyprscope_act', { step: { op: 'pause', ms: 5 }, reason: 'demo', language: 'fr' }),
+    invoke(harness, 'hyprscope_plan', { action: 'validate', plan: { version: 1, steps: [] }, language: 'fr' }),
     /language/,
   )
   assert.equal(harness.calls().length, before)
@@ -835,10 +833,10 @@ test('only the read-only tools declare isConcurrencySafe', (t) => {
 test('apply tolerates a null or absent config', () => {
   const fake = makeFakeContext()
   assert.doesNotThrow(() => plugin.apply(fake.ctx, null))
-  assert.equal(fake.definitions.size, 8)
+  assert.equal(fake.definitions.size, 6)
   const second = makeFakeContext()
   assert.doesNotThrow(() => plugin.apply(second.ctx))
-  assert.equal(second.definitions.size, 8)
+  assert.equal(second.definitions.size, 6)
 })
 
 test('invalid config throws in apply before any tool is registered', (t) => {
@@ -862,10 +860,11 @@ test('apply registers the hyprscope systemPrompt section when the service is ava
   assert.equal(section.order, 3050)
   assert.equal(typeof section.text, 'string')
   assert.match(section.text, /Use the hyprscope_\* tools/)
-  assert.match(section.text, /hyprscope_lease request/)
-  assert.match(section.text, /hyprscope_act/)
   assert.match(section.text, /hyprscope_plan run/)
   assert.match(section.text, /hyprscope_baseline action "probe"/)
+  assert.match(section.text, /There is no separate lease request/)
+  assert.doesNotMatch(section.text, /hyprscope_lease/)
+  assert.doesNotMatch(section.text, /hyprscope_act/)
   assert.match(section.text, /confirmation card/)
   assert.doesNotMatch(section.text, /action "accept"/)
   assert.match(section.text, /Never approve a consent card/)
@@ -879,7 +878,7 @@ test('systemPrompt injection failures never break apply', async (t) => {
       () => plugin.apply(fake.ctx, { projectDir }),
       `apply must survive promptMode=${promptMode}`,
     )
-    assert.equal(fake.definitions.size, 8, `all tools registered for promptMode=${promptMode}`)
+    assert.equal(fake.definitions.size, 6, `all tools registered for promptMode=${promptMode}`)
   }
   // Let the rejected optional-service fiber settle without an unhandled rejection.
   await new Promise((resolve) => setImmediate(resolve))
@@ -887,7 +886,7 @@ test('systemPrompt injection failures never break apply', async (t) => {
 
 test('a missing bin/hyprscope.ts keeps activation but names projectDir on every call', async (t) => {
   const harness = makeHarness(t, { writeCli: false })
-  assert.equal(harness.definitions.size, 8)
+  assert.equal(harness.definitions.size, 6)
   await assert.rejects(
     invoke(harness, 'hyprscope_observe', { kind: 'active' }),
     (error) => {
@@ -986,6 +985,29 @@ test('observe render falls back to the state summary above maxRenderChars', (t) 
   assert.equal(summary.note, STATE_SUMMARY_NOTE)
 })
 
+test('observe doctor adds the loaded pluginVersion and the spawned cliPath', async (t) => {
+  const harness = makeHarness(t)
+  harness.setMode({ stdout: JSON.stringify(DOCTOR_REPORT) })
+  const value = await invoke(harness, 'hyprscope_observe', { kind: 'doctor' })
+  // The CLI's own report is untouched; the plugin adds two top-level fields.
+  assert.equal(value.readOnly, true)
+  assert.equal(value.pluginVersion, PLUGIN_PACKAGE_VERSION)
+  assert.equal(value.cliPath, join(harness.projectDir, 'bin', 'hyprscope.ts'))
+  assert.deepEqual(harness.lastArgv(), ['doctor', '--timeout', '30000', '--json'])
+  const text = renderText(harness, 'hyprscope_observe', { kind: 'doctor' }, value)
+  const rendered = JSON.parse(text)
+  assert.equal(rendered.pluginVersion, PLUGIN_PACKAGE_VERSION)
+  assert.equal(rendered.cliPath, value.cliPath)
+  // The description tells an agent where the fields live.
+  const description = harness.definitions.get('hyprscope_observe').description
+  assert.match(description, /pluginVersion/)
+  assert.match(description, /cliPath/)
+  // Only doctor carries the provenance; other observation kinds stay the CLI's value.
+  const active = await invoke(harness, 'hyprscope_observe', { kind: 'active' })
+  assert.equal(Object.hasOwn(active, 'pluginVersion'), false)
+  assert.equal(Object.hasOwn(active, 'cliPath'), false)
+})
+
 test('observe doctor render drops wayland globals while the canonical value keeps them', async (t) => {
   const harness = makeHarness(t)
   harness.setMode({ stdout: JSON.stringify(DOCTOR_REPORT) })
@@ -1003,16 +1025,25 @@ test('observe doctor render drops wayland globals while the canonical value keep
   assert.deepEqual(rendered.discovery, DOCTOR_REPORT.discovery)
   assert.deepEqual(rendered.baseline, DOCTOR_REPORT.baseline)
   assert.deepEqual(rendered.limitations, DOCTOR_REPORT.limitations)
+  assert.equal(rendered.pluginVersion, PLUGIN_PACKAGE_VERSION)
+  assert.equal(rendered.cliPath, value.cliPath)
 })
 
 test('observe doctor render keeps only the stable sections when still too long', (t) => {
-  const harness = makeHarness(t, { config: { maxRenderChars: 700 } })
-  const doctor = { ...DOCTOR_REPORT, debug: 'x'.repeat(400) }
+  const harness = makeHarness(t, { config: { maxRenderChars: 2000 } })
+  const doctor = {
+    ...DOCTOR_REPORT,
+    pluginVersion: PLUGIN_PACKAGE_VERSION,
+    cliPath: join(harness.projectDir, 'bin', 'hyprscope.ts'),
+    debug: 'x'.repeat(3000),
+  }
   // A fresh value is rendered directly; no CLI call is needed for a pure render.
   const text = renderText(harness, 'hyprscope_observe', { kind: 'doctor' }, doctor)
-  assert.ok(text.length <= 700)
+  assert.ok(text.length <= 2000)
   const rendered = JSON.parse(text)
   assert.deepEqual(Object.keys(rendered).sort(), [...DOCTOR_SUMMARY_KEYS].sort())
+  assert.equal(rendered.pluginVersion, PLUGIN_PACKAGE_VERSION)
+  assert.equal(rendered.cliPath, doctor.cliPath)
   assert.equal(Object.hasOwn(rendered, 'debug'), false)
   assert.equal(Object.hasOwn(rendered.capabilities.wayland, 'globals'), false)
 })
@@ -1026,10 +1057,11 @@ test('CAPABILITY failures name the baseline probe and its confirmation card', as
     error: { code: 'CAPABILITY', message: 'baseline is missing', details: { missing: ['dispatch.window.move'] } },
   })
   await assert.rejects(
-    invoke(harness, 'hyprscope_lease', { action: 'request', reason: 'read the active window' }),
+    invoke(harness, 'hyprscope_plan', { action: 'run', plan: { version: 1, steps: [] } }),
     (error) => {
       assert.match(error.message, /^hyprscope CAPABILITY: baseline is missing/)
       assert.ok(error.message.includes('details: {"missing":["dispatch.window.move"]}'))
+      assert.match(error.message, /missing, stale, incomplete or unverified/)
       assert.match(error.message, /hyprscope_baseline with action "probe"/)
       assert.match(error.message, /confirmation card/)
       assert.doesNotMatch(error.message, /action "accept"/)
@@ -1069,24 +1101,70 @@ test('NO_SESSION failures explain Hyprland discovery and the selector flags', as
   )
 })
 
-test('USAGE exit code 2 maps to a rejected-arguments error', async (t) => {
+test('USAGE exit code 2 maps to a rejected-arguments error with the doctor next step', async (t) => {
   const harness = makeHarness(t)
   harness.setMode({ mode: 'usage', stderr: 'hyprscope: USAGE: Unknown option --bogus' })
   await assert.rejects(
     invoke(harness, 'hyprscope_observe', { kind: 'active' }),
     (error) => {
-      assert.equal(error.message, 'hyprscope rejected the arguments: hyprscope: USAGE: Unknown option --bogus')
+      assert.match(error.message, /^hyprscope rejected the arguments: hyprscope: USAGE: Unknown option --bogus/)
+      assert.match(error.message, /hyprscope_observe with kind "doctor"/)
+      assert.match(error.message, /pluginVersion and cliPath/)
+      assert.match(error.message, /restart DSH/)
       return true
     },
   )
 })
 
-test('plain-text exit 1 failures use the generic failure message', async (t) => {
+test('plain-text exit 1 failures keep the raw reason and add no wrong hint', async (t) => {
   const harness = makeHarness(t)
   harness.setMode({ mode: 'plain-error', stderr: 'hyprscope: COMMAND_FAILED: socket closed' })
   await assert.rejects(
-    invoke(harness, 'hyprscope_lease', { action: 'status' }),
-    /hyprscope failed \(exit 1\): hyprscope: COMMAND_FAILED: socket closed/,
+    invoke(harness, 'hyprscope_baseline', { action: 'show' }),
+    (error) => {
+      assert.match(error.message, /^hyprscope failed \(exit 1\): hyprscope: COMMAND_FAILED: socket closed$/)
+      assert.doesNotMatch(error.message, /XDG_STATE_HOME/)
+      assert.doesNotMatch(error.message, /next step:/)
+      return true
+    },
+  )
+})
+
+test('EROFS failures point at XDG_STATE_HOME and the real state home', async (t) => {
+  const harness = makeHarness(t)
+  harness.setMode({
+    mode: 'plain-error',
+    stderr: "hyprscope: COMMAND_FAILED: EROFS: read-only file system, mkdir '/home/user/.local/state/hyprlease'",
+  })
+  await assert.rejects(
+    invoke(harness, 'hyprscope_baseline', { action: 'show' }),
+    (error) => {
+      assert.match(error.message, /^hyprscope failed \(exit 1\): hyprscope: COMMAND_FAILED: EROFS/)
+      assert.match(error.message, /XDG_STATE_HOME at a writable directory/)
+      assert.match(error.message, /accepted baseline lives in the real state home/)
+      assert.match(error.message, /\$XDG_STATE_HOME\/hyprscope\/baseline\.json/)
+      return true
+    },
+  )
+})
+
+test('an EROFS failure inside a JSON envelope still gets the state-home hint', async (t) => {
+  const harness = makeHarness(t)
+  harness.setMode({
+    error: {
+      code: 'COMMAND_FAILED',
+      message: "EROFS: read-only file system, open '/home/user/.local/state/hyprlease/state.json'",
+      details: { errno: 'EROFS' },
+    },
+  })
+  await assert.rejects(
+    invoke(harness, 'hyprscope_baseline', { action: 'probe' }),
+    (error) => {
+      assert.match(error.message, /^hyprscope COMMAND_FAILED: EROFS/)
+      assert.match(error.message, /XDG_STATE_HOME at a writable directory/)
+      assert.match(error.message, /real state home/)
+      return true
+    },
   )
 })
 
@@ -1455,85 +1533,6 @@ test('screenshot rejects a relative output and misplaced scope flags without spa
 })
 
 // ---------------------------------------------------------------------------
-// hyprscope_lease
-
-test('lease request maps reason/ttl/consent and returns the canonical lease', async (t) => {
-  const harness = makeHarness(t)
-  const value = await invoke(harness, 'hyprscope_lease', {
-    action: 'request',
-    reason: 'read the active window',
-    ttlSeconds: 90,
-    consentSeconds: 20,
-  })
-  assert.deepEqual(harness.lastArgv(), [
-    'control', 'request',
-    '--reason', 'read the active window',
-    '--ttl', '90',
-    '--consent', '20',
-    '--json',
-  ])
-  assert.equal(value.leaseId, 'lease-test-1')
-  assert.equal(value.state, 'active')
-  assert.equal(value.reason, 'read the active window')
-  assert.equal(value.ttlSec, 90)
-  assert.equal(value.consentSec, 20)
-})
-
-test('lease request defaults ttl/consent and appends instance flags', async (t) => {
-  const harness = makeHarness(t)
-  await invoke(harness, 'hyprscope_lease', {
-    action: 'request',
-    reason: 'inspect the workspace',
-    desktop: 'agent',
-    signature: 'sig-1',
-  })
-  assert.deepEqual(harness.lastArgv(), [
-    'control', 'request',
-    '--reason', 'inspect the workspace',
-    '--ttl', '120',
-    '--consent', '45',
-    '--desktop', 'agent',
-    '--signature', 'sig-1',
-    '--json',
-  ])
-})
-
-test('lease request requires a reason', async (t) => {
-  const harness = makeHarness(t)
-  await assert.rejects(
-    invoke(harness, 'hyprscope_lease', { action: 'request' }),
-    /hyprscope_lease: reason is required when action is "request"/,
-  )
-  await assert.rejects(
-    invoke(harness, 'hyprscope_lease', { action: 'request', reason: '   ' }),
-    /hyprscope_lease: reason must be a non-empty string/,
-  )
-  assert.equal(harness.calls().length, 0)
-})
-
-test('lease status, done and panic never pass --consent', async (t) => {
-  const harness = makeHarness(t)
-  for (const action of ['status', 'done', 'panic']) {
-    const value = await invoke(harness, 'hyprscope_lease', { action })
-    assert.deepEqual(harness.lastArgv(), ['control', action, '--json'])
-    assert.ok(!harness.lastArgv().includes('--consent'))
-    if (action === 'status') assert.equal(value.state, 'none')
-    else assert.equal(value.ok, true)
-  }
-})
-
-test('lease passes shell metacharacters as one argv token, never through a shell', async (t) => {
-  const harness = makeHarness(t)
-  const marker = join(harness.projectDir, 'shell-injection-marker')
-  const reason = `focus the window; touch ${marker} #`
-  await invoke(harness, 'hyprscope_lease', { action: 'request', reason })
-  const argv = harness.lastArgv()
-  assert.equal(argv[3], reason)
-  assert.deepEqual(argv, ['control', 'request', '--reason', reason, '--ttl', '120', '--consent', '45', '--json'])
-  assert.equal(existsSync(marker), false)
-})
-
-// ---------------------------------------------------------------------------
 // hyprscope_plan
 
 test('plan validate maps planPath, adds --dry-run and leaves stdin untouched', async (t) => {
@@ -1668,146 +1667,6 @@ test('plan run defaults consent/max-resumes', async (t) => {
   assert.deepEqual(harness.lastArgv(), [
     'control', 'run', planPath, '--consent', '45', '--max-resumes', '1', '--json',
   ])
-})
-
-// ---------------------------------------------------------------------------
-// hyprscope_act
-
-test('act submits one one-step plan on stdin with default plan id and run flags', async (t) => {
-  const harness = makeHarness(t)
-  const step = {
-    op: 'window.focus',
-    client: '0x55',
-    requires: [{ kind: 'client.exists', client: '0x55' }],
-  }
-  const value = await invoke(harness, 'hyprscope_act', { step, reason: 'focus the shell window' })
-  assert.deepEqual(harness.lastArgv(), [
-    'control', 'run', '-', '--consent', '45', '--max-resumes', '1', '--json',
-  ])
-  const expected = {
-    version: 1,
-    id: 'act',
-    reason: 'focus the shell window',
-    steps: [step],
-  }
-  assert.equal(value.stdinEof, true)
-  assert.equal(value.stdinBytes, Buffer.byteLength(JSON.stringify(expected), 'utf8'))
-  assert.deepEqual(value.submittedPlan, expected)
-  assert.equal(Object.hasOwn(value.submittedPlan, 'budgetMs'), false)
-  assert.equal(value.status, 'completed')
-})
-
-test('act passes a custom planId/budgetMs/maxResumes/consentSeconds', async (t) => {
-  const harness = makeHarness(t)
-  const step = { op: 'workspace', workspace: 2 }
-  const value = await invoke(harness, 'hyprscope_act', {
-    step,
-    reason: 'switch to workspace 2',
-    planId: 'switch-ws_2',
-    budgetMs: 5000,
-    maxResumes: 3,
-    consentSeconds: 70,
-  })
-  assert.deepEqual(harness.lastArgv(), [
-    'control', 'run', '-', '--consent', '70', '--max-resumes', '3', '--json',
-  ])
-  assert.deepEqual(value.submittedPlan, {
-    version: 1,
-    id: 'switch-ws_2',
-    reason: 'switch to workspace 2',
-    steps: [step],
-    budgetMs: 5000,
-  })
-  assert.equal(value.status, 'completed')
-})
-
-test('act closes stdin after one document so the CLI reads to EOF', async (t) => {
-  const harness = makeHarness(t)
-  // A payload larger than one pipe chunk proves the whole document is delivered.
-  const step = { op: 'window.focus', client: '0x55', note: 'x'.repeat(2000) }
-  const value = await invoke(harness, 'hyprscope_act', { step, reason: 'focus a long step' })
-  const expected = JSON.stringify({ version: 1, id: 'act', reason: 'focus a long step', steps: [step] })
-  assert.equal(value.stdinEof, true)
-  assert.equal(value.stdinBytes, Buffer.byteLength(expected, 'utf8'))
-  assert.deepEqual(value.submittedPlan, JSON.parse(expected))
-})
-
-test('cancelling an act call while it waits on stdin rejects with the cancellation error', async (t) => {
-  const harness = makeHarness(t)
-  harness.setMode({ sleepMs: 5000 })
-  const controller = new AbortController()
-  const pending = invoke(
-    harness,
-    'hyprscope_act',
-    { step: { op: 'window.focus' }, reason: 'focus the shell' },
-    { signal: controller.signal },
-  )
-  controller.abort()
-  await assert.rejects(pending, /hyprscope call cancelled: hyprscope control run/)
-})
-
-test('act renders the same run projection as hyprscope_plan run', async (t) => {
-  const harness = makeHarness(t)
-  const value = await invoke(harness, 'hyprscope_act', { step: { op: 'window.focus' }, reason: 'focus' })
-  const actText = renderText(harness, 'hyprscope_act', { reason: 'focus' }, value)
-  const planText = renderText(harness, 'hyprscope_plan', { action: 'run' }, value)
-  assert.equal(actText, planText)
-  const rendered = JSON.parse(actText)
-  assert.deepEqual(rendered, {
-    status: 'completed',
-    runId: 'run-test-1',
-    dir: join(harness.projectDir, 'out', 'runs', 'run-test-1'),
-    durationMs: 1234,
-    target: { kind: 'user', signature: 'sig-1' },
-    baseline: { present: true, state: 'accepted' },
-    fault: null,
-    attempts: [{ attempt: 1, status: 'completed', steps: 1 }],
-    screenshotCount: 1,
-    note: `artifacts (plan, timeline, screenshots) live under ${join(harness.projectDir, 'out', 'runs', 'run-test-1')}`,
-  })
-  assert.equal(Object.hasOwn(rendered, 'hash'), false)
-  assert.equal(Object.hasOwn(rendered, 'steps'), false)
-})
-
-test('act CAPABILITY failures keep the probe and confirmation-card hints', async (t) => {
-  const harness = makeHarness(t)
-  harness.setMode({
-    error: { code: 'CAPABILITY', message: 'baseline is stale', details: { reasons: ['config changed'] } },
-  })
-  await assert.rejects(
-    invoke(harness, 'hyprscope_act', { step: { op: 'window.focus' }, reason: 'focus the shell' }),
-    (error) => {
-      assert.match(error.message, /^hyprscope CAPABILITY: baseline is stale/)
-      assert.ok(error.message.includes('details: {"reasons":["config changed"]}'))
-      assert.match(error.message, /hyprscope_baseline with action "probe"/)
-      assert.match(error.message, /confirmation card/)
-      assert.doesNotMatch(error.message, /action "accept"/)
-      return true
-    },
-  )
-  const argv = harness.lastArgv()
-  assert.equal(argv.at(-1), '--json')
-  assert.equal(argv.includes('--accept'), false)
-})
-
-test('act validates step/reason/planId/budget locally before spawning', async (t) => {
-  const harness = makeHarness(t)
-  const cases = [
-    [{ reason: 'focus' }, /hyprscope_act: step must be a plan step object with an op/],
-    [{ step: {}, reason: 'focus' }, /hyprscope_act: step\.op must be a non-empty string/],
-    [{ step: { op: 'window.focus' } }, /hyprscope_act: reason must be a non-empty string/],
-    [{ step: { op: 'window.focus' }, reason: '   ' }, /hyprscope_act: reason must be a non-empty string/],
-    [{ step: { op: 'window.focus' }, reason: 'x'.repeat(201) }, /hyprscope_act: reason must be at most 200 characters/],
-    [{ step: { op: 'window.focus' }, reason: 'focus', planId: 'bad id' }, /hyprscope_act: planId must be at most 64 characters/],
-    [{ step: { op: 'window.focus' }, reason: 'focus', planId: 'x'.repeat(65) }, /hyprscope_act: planId must be at most 64 characters/],
-    [{ step: { op: 'window.focus' }, reason: 'focus', budgetMs: 100 }, /hyprscope_act: budgetMs must be an integer between 500 and 30000/],
-    [{ step: { op: 'window.focus' }, reason: 'focus', maxResumes: 4 }, /hyprscope_act: maxResumes must be an integer between 0 and 3/],
-    [{ step: { op: 'window.focus' }, reason: 'focus', consentSeconds: 4 }, /hyprscope_act: consentSeconds must be an integer between 5 and 120/],
-  ]
-  for (const [args, pattern] of cases) {
-    await assert.rejects(invoke(harness, 'hyprscope_act', args), pattern)
-  }
-  assert.equal(harness.calls().length, 0)
 })
 
 // ---------------------------------------------------------------------------
@@ -1964,7 +1823,7 @@ test('desktop start validates the requested size before spawning', async (t) => 
 // (a live integration run of hyprscope_events once returned a string and failed
 // the tool pipeline with "content.some is not a function").
 
-test('every tool render returns non-empty ContentBlock arrays (all eight tools)', (t) => {
+test('every tool render returns non-empty ContentBlock arrays (all six tools)', (t) => {
   const harness = makeHarness(t)
   /** Representative canonical values for one render call per tool. */
   const cases = [
@@ -1974,7 +1833,6 @@ test('every tool render returns non-empty ContentBlock arrays (all eight tools)'
     { name: 'hyprscope_screenshot', args: {}, value: { ...CAPTURE_VALUE, image: IMAGE_REF } },
     { name: 'hyprscope_events', args: {}, value: EMPTY_EVENTS_VALUE },
     { name: 'hyprscope_events', args: { match: '^openwindow:' }, value: EVENTS_VALUE },
-    { name: 'hyprscope_lease', args: { action: 'status' }, value: { state: 'none', leaseId: null } },
     {
       name: 'hyprscope_plan',
       args: { action: 'validate' },
@@ -2004,22 +1862,6 @@ test('every tool render returns non-empty ContentBlock arrays (all eight tools)'
         screenshots: [],
       },
     },
-    {
-      name: 'hyprscope_act',
-      args: { step: { op: 'window.focus' }, reason: 'focus the shell' },
-      value: {
-        status: 'completed',
-        runId: 'run-act-1',
-        dir: '/tmp/run-act-1',
-        durationMs: 5,
-        target: {},
-        baseline: {},
-        fault: null,
-        attempts: [{ attempt: 1, status: 'completed', steps: 1 }],
-        steps: [{ op: 'window.focus', status: 'done' }],
-        screenshots: [],
-      },
-    },
     { name: 'hyprscope_baseline', args: { action: 'show' }, value: { state: 'accepted', present: true } },
     {
       name: 'hyprscope_baseline',
@@ -2033,7 +1875,7 @@ test('every tool render returns non-empty ContentBlock arrays (all eight tools)'
   assert.deepEqual(
     [...new Set(cases.map((item) => item.name))].sort(),
     [...TOOL_NAMES].sort(),
-    'the render contract must cover all eight tools',
+    'the render contract must cover all six tools',
   )
   for (const item of cases) {
     const blocks = renderBlocks(harness, item.name, item.args, item.value)

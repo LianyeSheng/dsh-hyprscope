@@ -7,24 +7,23 @@ English | [中文](/docs/LEASE.zh.md)
 ## A full lease lifecycle
 
 ```
-agent:   hyprscope control request --reason "填写登录表单" --ttl 120
+agent:   hyprscope control run plan.json
 host:    a consent card pops up in the middle of the screen (allow / deny; auto-deny after 45 seconds)
 host:    clicks allow
-agent:   receives {granted: true, leaseId, expiresAt} and starts working
+agent:   the run executes the plan under the lease, then hands control back when it ends
 agent:   hits recoverable interference → writes interference.json and waits for the host's answer
 host:    chooses "Continue execution"
 agent:   renews the same lease and runs the derived recovery plan (1 by default, at most 3)
-agent:   hyprscope control done            # hand control back voluntarily
 host:    SUPER + ALT + ESC          # or press this key at any time to interrupt
 ```
 
-- `request` blocks only while waiting for the **consent decision**; once approved it exits immediately, and a background holder process holds the lease, maintains the timeout, and closes the overlay when the run ends.
-- A lease has a TTL (120 seconds by default): if the agent crashes, forgets to call `done`, or the process gets killed, control is returned automatically at expiry.
+- `run` is the whole agent workflow: it validates the plan, shows the consent card in the same call, and after approval holds the lease for the run, executes the plan, and releases control; there is no separate acquire or hand-back command.
+- A lease has a TTL (120 seconds by default): if the agent crashes, never releases the lease, or the process gets killed, control is returned automatically at expiry.
 - The overlay has two faces: during consent it is a full-screen modal card that holds the keyboard exclusively; after approval it shrinks to a narrow strip at the top showing "Agent is controlling the desktop · time remaining", with "Revoke now" on the right. The strip does not intercept the mouse or keyboard, so the agent's injection is not blocked.
 
-Inside an agent or external desktop the human consented once, at `desktop start` or `desktop attach`. There `run`, `request` and `baseline --probe` obtain a **programmatic lease** with no card (`grantedBy: desktop`), and only because the desktop record carries that consent; a plan run still binds that lease to the submitted plan and its TTL, and `wl-inject` verifies the same proof. The user's own desktop never takes this path: it keeps the per-run card. A programmatic lease never spawns the overlay.
+Inside an agent or external desktop the human consented once, at `desktop start` or `desktop attach`. There `run` and `baseline --probe` obtain a **programmatic lease** with no card (`grantedBy: desktop`), and only because the desktop record carries that consent; a plan run still binds that lease to the submitted plan and its TTL, and `wl-inject` verifies the same proof. The user's own desktop never takes this path: it keeps the per-run card. A programmatic lease never spawns the overlay.
 
-Closing the desktop's window does not by itself revoke a lease. `desktop stop` explicitly releases the stopped desktop's lease; a run interrupted by the compositor disappearing faults with `target.desktop-closed` and releases in its `finally` path; a detached holder with no run keeps the lease until its TTL.
+Closing the desktop's window does not by itself revoke a lease. `desktop stop` explicitly releases the stopped desktop's lease; a run interrupted by the compositor disappearing faults with `target.desktop-closed` and releases in its `finally` path; the internal holder keeps a lease that no run is releasing until its TTL.
 
 ## State and files
 
@@ -36,16 +35,16 @@ For the user's desktop the state directory is `$XDG_STATE_HOME/hyprlease` (defau
 |---|---|
 | `state.json` | The single source of truth: phase, reason, start and end times, pids; when a plan is bound it also carries `planBound: true`, `planSummary`, `card` (what the consent card shows: the description and step lines, or the facts of an approval), `attempt`, `maxResumes`, `totalBudgetMs`, `renewals[]`; an approval-only request carries the same `card` with `approvalOnly: true` and `ttlMs: 0` |
 | `decision.json` | Written by the overlay or the host during the consent phase as `allow` / `deny` / `panic` |
-| `control.json` | Written by `done` / `panic` after approval to request the hand-back |
+| `control.json` | Written by the host failsafe (`panic`), or by a run releasing control, to request the hand-back |
 | `heartbeat.json` | Refreshed every 500ms by the requester and holder; used to tell whether the lease has lost its owner |
-| `lease.lock` | Single-lease mutual exclusion; carries the `leaseId`, and a duplicate request is rejected with `LEASE_ACTIVE` |
+| `lease.lock` | Single-lease mutual exclusion; carries the `leaseId`, and a second lease request is rejected with `LEASE_ACTIVE` |
 | `notice.json` | Short-lived notices published by the executor; the overlay shows one only while the `leaseId` matches and it has not expired, and at the start of a recovery it says "recovery N: …" |
 | `progress.json` | Execution progress published step by step by the executor: `step`/`total`/`op`, `status`, `attempt`, `maxResumes`, `phase`; a derived attempt is `recovering` throughout, and the overlay renders the banner and receipt from it |
 | `interference.json` | The blocking interference prompt published by the executor: id, step k/n, every broken premise, the recovery count, the extra budget, the deadline |
 | `interference-decision.json` | `continue` / `abort` written directly by the overlay button, which must echo the prompt's `id` |
 | `overlay.log` | The stderr of the Quickshell overlay |
 
-State files all carry a `leaseId` check: a leftover `done` record from an old lease does not end a new lease (covered by a regression test). Each `request` also clears the previous round's decision/control/heartbeat at start.
+State files all carry a `leaseId` check: a leftover hand-back record from an old lease does not end a new lease (covered by a regression test). Each new lease request also clears the previous round's decision/control/heartbeat at start.
 
 The state directory is not placed in `XDG_RUNTIME_DIR`: the Harness file sandbox may mount `/run/user/<uid>` read-only, while the shortcut process (started from the compositor) and the agent process must reach the same files.
 
@@ -55,7 +54,7 @@ A plan run can recover recoverable interference, but it does not bring up the co
 
 | Field | Meaning |
 |---|---|
-| `planBound` | Whether the lease approves a specific submitted plan: `true` for `run` and `baseline --probe`, `false` for `request` |
+| `planBound` | Whether the lease approves a specific submitted plan: `true` for `run` and `baseline --probe`, `false` for an approval-only lease (internal, used by baseline acceptance) |
 | `planSummary` | The consent-card preview the host saw: `steps`, `ops`, `workspace`, `summary` |
 | `attempt` | The current attempt: `0` is the original plan, `1..maxResumes` are recovery attempts |
 | `maxResumes` | The recovery count consent covers; default `1`, hard maximum `3` |
@@ -103,11 +102,10 @@ Inside an agent or external desktop there is no overlay and therefore no prompt:
 ## Commands
 
 ```
-hyprscope control run <plan.json> [--consent 45] [--max-resumes 1] [--dry-run] [--json]   # approve and execute a plan
-hyprscope control request --reason <text> [--ttl 120] [--consent 45] [--json]
+hyprscope control run <plan.json> [--consent 45] [--max-resumes 1] [--dry-run] [--json]   # ask for consent, execute, release
+hyprscope control ops [--json]          # the operation catalog a plan can use
 hyprscope control status [--json]       # phase, remaining time, holder/overlay pid, stale, recovery progress
-hyprscope control done [--json]         # the agent hands control back
-hyprscope control panic [--json]        # the host takes control back immediately (this is what the shortcut runs)
+hyprscope control panic [--json]        # emergency revoke (the shortcut and `desktop stop` run it)
 hyprscope control install-bind [--key "SUPER + ALT + ESC"]
 hyprscope control uninstall-bind
 hyprscope control baseline --probe [--read-only] [--json]   # measure this machine; a widening result asks the host and writes the accepted baseline on Allow
@@ -120,13 +118,13 @@ hyprscope control desktop stop [--json]
 
 Every `hyprscope control ...` command also accepts `--lang <zh|en>`: it selects the language of the consent or confirmation card and of the overlay it spawns. Omitted means the `HYPRSCOPE_LANG` environment value, else `zh`; an unsupported value is a usage error. The card content (plan preview lines, baseline confirmation lines, the reason and the recovery notices) and the overlay's own chrome follow it, while CLI stdout stays English.
 
-`--desktop user|agent|external` selects the desktop that `run`, `request`, `status`, `done`, `panic` and `baseline` address; omitted means `user`. `request`, `status`, `done` and `panic` operate on that desktop's per-signature lease, so `done` must name the desktop that holds it.
+`--desktop user|agent|external` selects the desktop that `run`, `ops`, `status`, `panic`, `baseline` and `desktop` address; omitted means `user`. `status` and `panic` operate on that desktop's per-signature lease, so `panic` must name the desktop that holds it.
 
-`run` and `request` first read the accepted capability baseline of the desktop they address — the machine-wide `$XDG_STATE_HOME/hyprscope/baseline.json` for `user`, or `$XDG_STATE_HOME/hyprscope/desktop/baseline/<signature>.json` for `agent`/`external` (see [BASELINE.md](/docs/BASELINE.md)): when it is missing, still a draft, `incomplete`, or its staleness verdict is not `fresh`, they fail with `CAPABILITY` before any consent card appears, so the host is never asked to approve something this machine cannot run. `baseline --probe` is the one control path that works without a baseline, because it is what creates one; it still takes its own short lease.
+`run` first reads the accepted capability baseline of the desktop it addresses — the machine-wide `$XDG_STATE_HOME/hyprscope/baseline.json` for `user`, or `$XDG_STATE_HOME/hyprscope/desktop/baseline/<signature>.json` for `agent`/`external` (see [BASELINE.md](/docs/BASELINE.md)): when it is missing, still a draft, `incomplete`, or its staleness verdict is not `fresh`, they fail with `CAPABILITY` before any consent card appears, so the host is never asked to approve something this machine cannot run. `baseline --probe` is the one control path that works without a baseline, because it is what creates one; it still takes its own short lease.
 
-`--max-resumes` takes `0..3` (default `1`) and is the recovery count the consent card covers: `0` means the first recoverable interference faults directly without showing the prompt card. `--dry-run` prints this allowance too. `--consent` applies to both `run` and `request`; `--ttl` affects only `request`, while each attempt's TTL for `run` is the plan's `budgetMs` plus 20000ms of margin.
+`--max-resumes` takes `0..3` (default `1`) and is the recovery count the consent card covers: `0` means the first recoverable interference faults directly without showing the prompt card. `--dry-run` prints this allowance too. `--consent` applies to `run` and to `baseline --probe`; each attempt's TTL for `run` is the plan's `budgetMs` plus 20000ms of margin.
 
-Exit codes: `request` exits 0 when consented and 1 when denied or timed out; invalid arguments exit 2. `__hold` is an internal command used by the background holder and is not exposed to callers.
+Exit codes: `run` exits 0 when the plan completes, 1 when it faults, is revoked, or consent is denied or times out; invalid arguments exit 2. The detached lease holder is an internal module entry started by the lease code, not a CLI command and not part of the documented surface.
 
 `install-bind` appends a marked `hl.bind(...)` block to `~/.config/hypr/hyprland.lua`, first makes a timestamped backup, then runs `hyprctl reload`, then confirms through the `description` field of `hyprctl binds -j` that the binding really took effect; if it did not, it rolls back the configuration and reports `BIND_FAILED`. `uninstall-bind` removes the block and reloads. Both the new `hyprscope` marker and the historical `hyprlease` marker are accepted when replacing or uninstalling; a bind installed before the CLI merge points at the deleted `bin/hyprlease.ts` and has to be reinstalled.
 
@@ -139,7 +137,7 @@ From the most reliable to the least:
 1. **The shortcut** `SUPER + ALT + ESC`: a compositor-level bind, unaffected by whether the overlay grabs the keyboard. The command is an absolute path and links to `hyprscope control panic`.
 2. **"Revoke now" on the overlay**: one mouse click ends it, with no keyboard needed.
 3. **TTL expiry**: the holder returns control on time without relying on either side's cooperation.
-4. **Heartbeat stale-owner cleanup**: when the holder/requester heartbeat has not been updated for more than 5 seconds, the next `status`/`request` marks the lease `revoked` and clears the overlay and the lock.
+4. **Heartbeat stale-owner cleanup**: when the holder/requester heartbeat has not been updated for more than 5 seconds, the next `status` or `run` marks the lease `revoked` and clears the overlay and the lock.
 5. **`panic`'s forced path**: if no terminal state arrives within 5 seconds after writing `control.json`, it kills the overlay itself (only processes whose `/proc/<pid>/comm` is quickshell), writes the terminal state, and releases the lock.
 
 Input already sent cannot be undone (once injection is enabled), so every path's semantics are "stop subsequent actions + release pressed keys/buttons", not rollback.
@@ -157,7 +155,7 @@ So the lease is **protocol-level mutual exclusion plus collaboration**: consent,
 
 This has to be written down: the consent card renders on the same seat, so any process able to inject pointer/keyboard input can click the "allow" button. We measured it once: a single click sent to the button's coordinates with `bin/wl-inject` closed the card — that test was checking whether the button was really clickable, but it also proved that the card itself is not authentication.
 
-What can be gated today: the injection helper requires the caller to provide a **granted** lease proof (`--lease-state` + `--lease`), re-reads `state.json` before each injection, and requires `phase=granted`, a matching `leaseId`, `planBound: true` and an unexpired lease. Injection during the consent phase (`consent`) is therefore always rejected, and the agent can no longer use the official helper to click its own consent card. For a lease started by `request`, `planBound` is `false`, so this proof also fails for "request first, then click allow".
+What can be gated today: the injection helper requires the caller to provide a **granted** lease proof (`--lease-state` + `--lease`), re-reads `state.json` before each injection, and requires `phase=granted`, a matching `leaseId`, `planBound: true` and an unexpired lease. Injection during the consent phase (`consent`) is therefore always rejected, and the agent can no longer use the official helper to click its own consent card. An approval-only lease (internal, used by baseline acceptance) has `planBound: false`, so this proof also fails for "approve first, then click allow".
 
 What it does not stop: under the same uid, an agent able to run arbitrary code can write its own Wayland client and inject with the same protocol, or forge `state.json` or `decision.json` directly. Only two paths give a real boundary: hand the lease state and the injection channel to a broker under a separate uid (so the agent side cannot reach the compositor socket or the state directory), or give the agent a separate compositor session. Until then, the consent card serves **visibility and awareness**, not authentication.
 

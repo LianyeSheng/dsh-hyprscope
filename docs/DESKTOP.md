@@ -77,7 +77,7 @@ The baseline stays a per-instance verdict. The user's desktop keeps the machine-
 
 - Drift compares the recorded version, provider, `input:follow_mouse`, bind count, whether a plain F12 is bound, configuration errors as a set, and `configHash` when one is recorded. Any difference is `stale`; a value the baseline does not record is `unverified`; a value the live compositor cannot report is `stale`.
 - A baseline written before drift tracking has no `effective` block; it is `unverified`, and control refuses it with `CAPABILITY` until it is re-probed.
-- `desktop status` reports a changed generated config as `stale`; `doctor` reports the target, the `fresh`/`stale`/`unverified` verdict, the reasons and the field differences. `run` (including `--dry-run`) and `request` refuse a stale or unverified baseline with `CAPABILITY` before any consent card, because control must be decided by a measurement of what is running; read-only observation is unaffected.
+- `desktop status` reports a changed generated config as `stale`; `doctor` reports the target, the `fresh`/`stale`/`unverified` verdict, the reasons and the field differences. `run` (including `--dry-run`) refuses a stale or unverified baseline with `CAPABILITY` before any consent card, because control must be decided by a measurement of what is running; read-only observation is unaffected.
 - Editing an agent snippet invalidates the baseline. A probe while the running compositor still uses the old configuration is refused with `DESKTOP_FAILED` (`stop and start the desktop before probing it`), so the flow is: stop the desktop, start it again (new signature, so the new desktop needs its own probe), then probe (a widening probe asks the host for the confirmation card). Restoring the snippet before restarting makes the baseline `fresh` again.
 - Re-probing a stale baseline otherwise follows the normal probe flow; narrowing still applies automatically, and a widening probe asks the host for acceptance itself.
 
@@ -86,7 +86,7 @@ This is also why the agent desktop is cheaper than the user's desktop: its confi
 ## 7. Consent
 
 - Starting or attaching an agent desktop needs one explicit user confirmation (`--consent-source chat|card`; `chat` is the default); `desktop.json` records when and how (`source: "chat"` or `"card"`), and that record is the basis for everything that happens inside it.
-- Inside an `agent` or `external` desktop, `run` and `request` still obtain a lease programmatically, bound to the submitted plan and the attempt TTL, but no card is shown: the desktop itself is the consent boundary. `baseline --probe` uses the same programmatic lease. The executor's lease gate and the injection helper's lease proof stay in force; nothing bypasses them.
+- Inside an `agent` or `external` desktop, `run` still obtains a lease programmatically, bound to the submitted plan and the attempt TTL, but no card is shown: the desktop itself is the consent boundary. `baseline --probe` uses the same programmatic lease. The executor's lease gate and the injection helper's lease proof stay in force; nothing bypasses them.
 - The interference prompt belongs to the user desktop's overlay, which a managed desktop does not have. Inside `agent` or `external`, restorable interference therefore faults the run instead of showing a card, and the agent asks the user in the conversation; no recovery plan is derived.
 - The `user` target keeps today's model: one card per run, one lease per run, revocable at any time.
 - `desktop stop` releases that desktop's lease explicitly. Closing the compositor window kills an in-flight run, which faults with `target.desktop-closed` and releases in its `finally` path; a lease held by a detached holder with no run ends at its TTL. Closing gives no separate revoke path because the compositor is gone, but the holder is a separate process.
@@ -109,7 +109,8 @@ hyprscope control desktop attach --runtime-dir <dir> [--signature <sig>] [--cons
 hyprscope control desktop status [--json]
 hyprscope control desktop stop [--json]
 hyprscope control run plan.json --desktop user|agent|external [--json]
-hyprscope control request / status / done / panic --desktop user|agent|external [--json]
+hyprscope control status --desktop user|agent|external [--json]
+hyprscope control panic --desktop user|agent|external [--json]   # emergency only (failsafe shortcut / desktop stop)
 hyprscope control baseline --probe / --show --desktop user|agent|external [--json]
 hyprscope <command> --desktop user|agent|external [--json]
 ```
