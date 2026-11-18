@@ -6,8 +6,8 @@
 # After editing either side, re-record the pair:
 #   python3 .agents/se/scripts/docs/verify_translation_pairing.py --write <pair>
 /dsh-hyprscope:
-  en: 0e8651a75e2708e8
-  zh: 0f92822b31279bc4
+  en: 9bf9d2c65fb10b1f
+  zh: 29bb42e996b106a7
 /dsh-hyprscope/quick-start:
   en: c105394adb036a47
   zh: 04f4506609e9847d

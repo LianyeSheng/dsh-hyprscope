@@ -2,6 +2,8 @@
 
 [English](/README.md) | 中文
 
+> **说明：** 本仓库的代码由 AI 生成，作者只负责项目设计和代码审查。
+
 一个用于观察 Hyprland 桌面、并在同意门控下实施控制的 CLI 工具，外加一个原生、开箱即用的 DeepSeek Harness（DSH）插件。观察层只读：找会话、读窗口/工作区/监视器、截图、订阅事件。需要动手的时候另走一套控制租约：宿主同意之后 agent 才能接管，随时可以收回。
 
 它先解决一个具体问题：DSH 的进程常常不在图形会话里，`WAYLAND_DISPLAY`、`HYPRLAND_INSTANCE_SIGNATURE` 都是空的，既看不见桌面，也不知道该把请求发给哪个 compositor。hyprscope 负责找到会话，把状态整理成稳定的字段，方便以后接 DSH 的 CUA provider。

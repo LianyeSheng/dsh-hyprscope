@@ -2,6 +2,8 @@
 
 English | [中文](/README.zh.md)
 
+> **Note:** The code in this repository is AI-generated; the author only did the project design and code review.
+
 A CLI tool for Hyprland desktop observation and consent-gated control, plus a native, plug-and-play plugin for DeepSeek Harness (DSH). The observation layer is read-only: it discovers sessions, reads windows, workspaces and monitors, takes screenshots and subscribes to events. When something has to be changed, that goes through a consent-gated control lease: only after the host consents can an agent take over, and it can be revoked at any time.
 
 It starts from a concrete problem: a DSH process is often not inside the graphical session, `WAYLAND_DISPLAY` and `HYPRLAND_INSTANCE_SIGNATURE` are both empty, and it can neither see the desktop nor know which compositor to send a request to. hyprscope finds the session and shapes the state into stable fields, so that DSH's CUA provider can be wired up later.
