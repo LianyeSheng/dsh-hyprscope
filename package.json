@@ -2,7 +2,7 @@
   "name": "dsh-hyprscope",
   "version": "0.2.0",
   "private": true,
-  "description": "Hyprland desktop observation and consent-gated control lease for DeepSeek Harness",
+  "description": "A CLI tool for Hyprland desktop observation and consent-gated control, plus a native, plug-and-play plugin for DeepSeek Harness (DSH).",
   "type": "module",
   "packageManager": "pnpm@12.20.0",
   "bin": {

@@ -2,7 +2,7 @@
 
 [English](/docs/DSH-PLUGIN.md) | 中文
 
-`plugins/dsh-hyprscope/` 是 DSH 的 Host 插件组合包（bundle），把 hyprscope 的命令行变成模型可以调用的八个工具。DSH 会话不用再拼 `node bin/hyprscope.ts ...` 这样的 shell 命令：记住仓库路径、参数顺序和 `--json`，再自己解析输出，都是负担。它会带类型化参数调用 `hyprscope_observe`、`hyprscope_screenshot`、`hyprscope_events`、`hyprscope_lease`、`hyprscope_plan`、`hyprscope_act`、`hyprscope_baseline` 或 `hyprscope_desktop`，拿回一个解析好的对象。
+`plugins/dsh-hyprscope/` 是本项目原生、开箱即用的 DSH Host 插件组合包（bundle），把 hyprscope 的命令行变成模型可以调用的八个工具。DSH 会话不用再拼 `node bin/hyprscope.ts ...` 这样的 shell 命令：记住仓库路径、参数顺序和 `--json`，再自己解析输出，都是负担。它会带类型化参数调用 `hyprscope_observe`、`hyprscope_screenshot`、`hyprscope_events`、`hyprscope_lease`、`hyprscope_plan`、`hyprscope_act`、`hyprscope_baseline` 或 `hyprscope_desktop`，拿回一个解析好的对象。
 
 这个组合包只是一层薄包装，不是第二份实现：每次工具调用都以子进程运行 `node bin/hyprscope.ts <command> --json`，参数用 argv 数组传递，不经过 shell。所有门控都留在 CLI 里，插件没有加任何绕开它们的办法。它只有 Host 端：只注册工具，不带页面。
 

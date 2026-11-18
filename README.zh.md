@@ -2,7 +2,7 @@
 
 [English](/README.md) | 中文
 
-给 DeepSeek Harness 用的 Hyprland 桌面观察与操控。观察层只读：找会话、读窗口/工作区/监视器、截图、订阅事件。需要动手的时候另走一套控制租约：宿主同意之后 agent 才能接管，随时可以收回。
+一个用于观察 Hyprland 桌面、并在同意门控下实施控制的 CLI 工具，外加一个原生、开箱即用的 DeepSeek Harness（DSH）插件。观察层只读：找会话、读窗口/工作区/监视器、截图、订阅事件。需要动手的时候另走一套控制租约：宿主同意之后 agent 才能接管，随时可以收回。
 
 它先解决一个具体问题：DSH 的进程常常不在图形会话里，`WAYLAND_DISPLAY`、`HYPRLAND_INSTANCE_SIGNATURE` 都是空的，既看不见桌面，也不知道该把请求发给哪个 compositor。hyprscope 负责找到会话，把状态整理成稳定的字段，方便以后接 DSH 的 CUA provider。
 
@@ -121,7 +121,7 @@ node bin/hyprscope.ts control run plans/live-terminal.json             # show th
 
 ### DSH 插件
 
-`plugins/dsh-hyprscope/` 是 DSH 的 Host 插件组合包（bundle），把这些命令变成模型可调用的八个工具，DSH 会话不用再自己拼 `node bin/hyprscope.ts ... --json` 命令。`hyprscope_observe`、`hyprscope_screenshot` 和 `hyprscope_events` 只读桌面；`hyprscope_lease`、`hyprscope_plan`、`hyprscope_act`、`hyprscope_baseline` 和 `hyprscope_desktop` 走 `hyprscope control`；`hyprscope_act` 把单个动作当作一步计划执行。观察不需要同意；改变桌面仍然要宿主在控制租约里同意，并且要有一份已验收的能力基线，插件没有加绕开它们的办法。
+`plugins/dsh-hyprscope/` 是本项目原生、开箱即用的 DSH Host 插件组合包（bundle），把这些命令变成模型可调用的八个工具，DSH 会话不用再自己拼 `node bin/hyprscope.ts ... --json` 命令。`hyprscope_observe`、`hyprscope_screenshot` 和 `hyprscope_events` 只读桌面；`hyprscope_lease`、`hyprscope_plan`、`hyprscope_act`、`hyprscope_baseline` 和 `hyprscope_desktop` 走 `hyprscope control`；`hyprscope_act` 把单个动作当作一步计划执行。观察不需要同意；改变桌面仍然要宿主在控制租约里同意，并且要有一份已验收的能力基线，插件没有加绕开它们的办法。
 
 在**插件**页选择**添加插件**，填入绝对目录 `/home/jw/workspace/dsh-hyprscope/plugins/dsh-hyprscope`；或者让 DSH 里的 agent 用 `plugin_manager` 的 `install_bundle` 装同一个目录。组合包只在 Linux 上加载，需要 checkout 和 Node 22 与 DSH 在同一台机器上。完整的工具面、配置键和限制在 [docs/DSH-PLUGIN.zh.md](/docs/DSH-PLUGIN.zh.md)。
 

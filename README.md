@@ -2,7 +2,7 @@
 
 English | [中文](/README.zh.md)
 
-Hyprland desktop observation and consent-gated control for DeepSeek Harness. The observation layer is read-only: it discovers sessions, reads windows, workspaces and monitors, takes screenshots and subscribes to events. When something has to be changed, that goes through a consent-gated control lease: only after the host consents can an agent take over, and it can be revoked at any time.
+A CLI tool for Hyprland desktop observation and consent-gated control, plus a native, plug-and-play plugin for DeepSeek Harness (DSH). The observation layer is read-only: it discovers sessions, reads windows, workspaces and monitors, takes screenshots and subscribes to events. When something has to be changed, that goes through a consent-gated control lease: only after the host consents can an agent take over, and it can be revoked at any time.
 
 It starts from a concrete problem: a DSH process is often not inside the graphical session, `WAYLAND_DISPLAY` and `HYPRLAND_INSTANCE_SIGNATURE` are both empty, and it can neither see the desktop nor know which compositor to send a request to. hyprscope finds the session and shapes the state into stable fields, so that DSH's CUA provider can be wired up later.
 
@@ -121,7 +121,7 @@ A screenshot can be taken in three ways: by default it captures the whole layout
 
 ### DSH plugin
 
-`plugins/dsh-hyprscope/` is a DSH Host bundle that turns these commands into eight tools for the model, so a session calls tools instead of composing `node bin/hyprscope.ts ... --json` commands. `hyprscope_observe`, `hyprscope_screenshot` and `hyprscope_events` read the desktop; `hyprscope_lease`, `hyprscope_plan`, `hyprscope_act`, `hyprscope_baseline` and `hyprscope_desktop` go through `hyprscope control`; `hyprscope_act` runs one single-step action as a one-step plan. Observation needs no consent; a desktop change still needs the host's consent in the control lease and an accepted capability baseline, and the plugin adds no bypass.
+`plugins/dsh-hyprscope/` is the project's native, plug-and-play DSH Host bundle; it turns these commands into eight tools for the model, so a session calls tools instead of composing `node bin/hyprscope.ts ... --json` commands. `hyprscope_observe`, `hyprscope_screenshot` and `hyprscope_events` read the desktop; `hyprscope_lease`, `hyprscope_plan`, `hyprscope_act`, `hyprscope_baseline` and `hyprscope_desktop` go through `hyprscope control`; `hyprscope_act` runs one single-step action as a one-step plan. Observation needs no consent; a desktop change still needs the host's consent in the control lease and an accepted capability baseline, and the plugin adds no bypass.
 
 Open **Plugins**, choose **Add plugin**, and enter the absolute directory `/home/jw/workspace/dsh-hyprscope/plugins/dsh-hyprscope`; or ask the DSH agent to call `plugin_manager` `install_bundle` with that directory. The bundle only loads on Linux and needs the checkout and Node 22 on the same machine as DSH. The tool surface, configuration keys and limitations are in [docs/DSH-PLUGIN.md](/docs/DSH-PLUGIN.md).
 

@@ -2,7 +2,7 @@
 
 English | [中文](/docs/DSH-PLUGIN.zh.md)
 
-`plugins/dsh-hyprscope/` is a DSH Host bundle that turns the hyprscope CLI into eight tools a model can call. Instead of composing `node bin/hyprscope.ts ...` shell commands — remembering the checkout path, the flag order and the `--json` switch, then parsing the result — a DSH session calls `hyprscope_observe`, `hyprscope_screenshot`, `hyprscope_events`, `hyprscope_lease`, `hyprscope_plan`, `hyprscope_act`, `hyprscope_baseline` or `hyprscope_desktop` with typed arguments and gets a parsed object back.
+`plugins/dsh-hyprscope/` is the project's native, plug-and-play DSH Host bundle; it turns the hyprscope CLI into eight tools a model can call. Instead of composing `node bin/hyprscope.ts ...` shell commands — remembering the checkout path, the flag order and the `--json` switch, then parsing the result — a DSH session calls `hyprscope_observe`, `hyprscope_screenshot`, `hyprscope_events`, `hyprscope_lease`, `hyprscope_plan`, `hyprscope_act`, `hyprscope_baseline` or `hyprscope_desktop` with typed arguments and gets a parsed object back.
 
 The bundle is a thin wrapper, not a second implementation: every tool call runs `node bin/hyprscope.ts <command> --json` as a child process, with an argv array and no shell. The CLI keeps every gate, and the plugin adds no way around them. It is Host-only: it registers tools, not a page.
 
