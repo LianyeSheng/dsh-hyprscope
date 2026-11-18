@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { capture, captureDirectory, parseRegion, pngDimensions } from '../src/screenshot.ts'
+import { capture, captureDirectory, defaultCapturePath, parseRegion, pngDimensions } from '../src/screenshot.ts'
 import { fakeSession, makePng, removeDir, tempDir, writeScript } from './support.ts'
 
 test('pngDimensions reads IHDR width and height', () => {
@@ -37,6 +37,11 @@ test('parseRegion rejects malformed and empty regions', () => {
 
 test('captureDirectory honours XDG_CACHE_HOME', () => {
   assert.equal(captureDirectory({ XDG_CACHE_HOME: '/tmp/cache' }), '/tmp/cache/hyprscope')
+})
+
+test('defaultCapturePath stamps the cache directory', () => {
+  const path = defaultCapturePath({ XDG_CACHE_HOME: '/tmp/cache' }, new Date('2026-01-02T03:04:05.678Z'))
+  assert.equal(path, '/tmp/cache/hyprscope/screenshot-2026-01-02T03-04-05-678Z.png')
 })
 
 /** Fake grim fixture paths. */
@@ -83,6 +88,7 @@ test('capture writes a PNG and reports geometry for a region', async (t) => {
   assert.equal(result.width, 640)
   assert.equal(result.height, 480)
   assert.equal(result.source.scope, 'region')
+  assert.equal(result.source.window, null)
   assert.deepEqual(result.source.region, { x: 10, y: 20, width: 300, height: 400 })
   assert.equal(result.sha256, createHash('sha256').update(readFileSync(output)).digest('hex'))
   const args = readFileSync(grim.args, 'utf8').trim().split('\n')

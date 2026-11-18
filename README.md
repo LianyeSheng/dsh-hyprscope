@@ -12,7 +12,7 @@ The project has one entry point: `hyprscope` observes read-only, and `hyprscope 
 
 ## Quick start
 
-You need Node 22 or newer, pnpm, and a running Hyprland. Screenshots rely on `grim`; the lock state is read from `loginctl`, and when it cannot be read the related fields are marked unavailable.
+You need Node 22 or newer, pnpm, and a running Hyprland. Layout, monitor and region screenshots rely on `grim`; a single window is captured through the native `bin/wl-capture` helper (build it with `pnpm run build:capture`). The lock state is read from `loginctl`, and when it cannot be read the related fields are marked unavailable.
 
 ```sh
 pnpm install
@@ -37,13 +37,20 @@ To execute plans with pointer or keyboard actions you also have to compile the i
 pnpm run build:inject     # -> bin/wl-inject
 ```
 
+To capture one window — including a window that sits on another workspace or is covered by another window — also compile the capture helper (C, a pure Wayland client; it asks the compositor to render one toplevel through `ext-image-copy-capture`, so the compositor must advertise that protocol together with the foreign-toplevel list and image-capture-source extensions; verified on Hyprland 0.57.2):
+
+```sh
+pnpm run build:capture     # -> bin/wl-capture
+```
+
+Layout, monitor and region captures still use `grim`.
+
 Control also needs an accepted capability baseline. Before `hyprscope control` may touch the desktop it has to know that this machine really supports what the tool assumes; the probe measures that by opening its own scratch window and sending a few round trips, so it asks for a short lease first:
 
 ```sh
 pnpm run build:scratch                          # -> bin/wl-scratch, the probe's own window
-node bin/hyprscope.ts control baseline --probe          # measure this machine; the consent card says why
+node bin/hyprscope.ts control baseline --probe          # measure this machine; when the result widens the baseline, the same command asks the host and writes it on Allow
 node bin/hyprscope.ts control baseline --show           # what was measured, what is missing, the diff
-node bin/hyprscope.ts control baseline --accept         # the host confirms on a desktop card; control is gated by this file
 ```
 
 Until that file is accepted, `hyprscope control run` and `hyprscope control request` refuse before any consent card appears; read-only `hyprscope` works either way.
@@ -53,6 +60,7 @@ Day-to-day commands go through the entry scripts:
 ```sh
 node bin/hyprscope.ts state
 node bin/hyprscope.ts screenshot --region 0,0,640,360 --output out/region.png
+node bin/hyprscope.ts screenshot --window-app foot --output out/window.png
 node bin/hyprscope.ts events --match 'workspace|activewindow' --count 2 --timeout 5000
 ```
 
@@ -69,7 +77,7 @@ node bin/hyprscope.ts control done                             # the agent hands
 
 If the failsafe was installed before the CLI merge, reinstall it: the old bind points at the removed `bin/hyprlease.ts`. `hyprscope control uninstall-bind` still recognises the old marker and removes it; `install-bind` then writes the `hyprscope control panic` command. A managed desktop started before the merge has the same problem in its generated panic bind; stop and start it.
 
-`request` pops a consent card in the centre of the screen (Allow / Deny; no choice within 45 seconds means an automatic deny). After approval the card shrinks into a top banner showing the remaining time, with "Revoke now" on the right. Control can be revoked in four ways: the agent calls `done`, the host presses `SUPER + ALT + ESC`, the banner button is clicked, or the TTL expires.
+`request` pops a consent card in the centre of the screen (Allow / Deny; no choice within 45 seconds means an automatic deny). After approval the card shrinks into a top banner showing the remaining time, with "Revoke now" on the right. Control can be revoked in four ways: the agent calls `done`, the host presses `SUPER + ALT + ESC`, the banner button is clicked, or the TTL expires. The card and overlay chrome follow `--lang <zh|en>` (default Chinese; `HYPRSCOPE_LANG` is the fallback), while CLI stdout stays English.
 
 Because Wayland was designed from the start for single-user use, there is no way to block the host's own input while an agent is in control, so the physical keyboard and mouse are not frozen. The full explanation of this boundary and the fallback chain is in [docs/LEASE.md](/docs/LEASE.md).
 
@@ -109,21 +117,21 @@ What a plan can do is kept very narrow: no `exec`, no arbitrary dispatcher, no c
 | `state` | One snapshot: focus + monitors + workspaces + clients + layers + cursor + lock |
 | `active` | Only the active window and workspace |
 | `clients` / `workspaces` / `monitors` / `layers` / `cursor` | Read a single item |
-| `screenshot` | Screenshot of the whole layout, a single monitor (`--monitor`) or a region (`--region x,y,w,h`) |
+| `screenshot` | Screenshot of the whole layout, a single monitor (`--monitor`), a region (`--region x,y,w,h`) or one window (`--window-id` / `--window-app` / `--window-title`) |
 | `events` | Subscribe to the compositor event stream; supports `--match`, `--once`, `--count`, `--timeout` |
 | `hyprscope control run <plan.json \| ->` | Validate the plan, bind consent to the submitted plan, execute and hand control back |
-| `hyprscope control baseline --probe / --show / --accept` | Measure this machine, review the evidence, accept the capability baseline control is gated by (accept is a confirmation card the host clicks) |
+| `hyprscope control baseline --probe / --show` | Measure this machine and, when the result widens the accepted baseline, ask the host on a confirmation card and write the new baseline on Allow; `--show` reviews the evidence and the accepted baseline |
 | `hyprscope control request / done / panic / status` | Request, end, force-revoke and inspect the control lease |
 | `hyprscope control desktop start / attach / status / stop` | Start a nested agent desktop, attach an existing instance, inspect either, or stop it |
 | `hyprscope control install-bind / uninstall-bind` | Install or remove the `SUPER + ALT + ESC` fallback |
 
-Common options: `--json`, `--desktop <user|agent|external>`, `--signature <sig>`, `--runtime-dir <dir>`, `-h`, `-v`; `hyprscope` also accepts `--timeout <ms>`. `--desktop` selects the instance a command addresses; the observation commands and `hyprscope control run`, `request`, `status`, `done`, `panic` and `baseline` accept it, and omitting it means the user's desktop. Use `--json` in scripts; the human-readable output only aims to look decent, and column alignment and wording are not guaranteed stable; a bad argument exits with code 2, any other failure with code 1.
+Common options: `--json`, `--desktop <user|agent|external>`, `--signature <sig>`, `--runtime-dir <dir>`, `-h`, `-v`; `hyprscope` also accepts `--timeout <ms>`. `--desktop` selects the instance a command addresses; the observation commands and `hyprscope control run`, `request`, `status`, `done`, `panic` and `baseline` accept it, and omitting it means the user's desktop. `hyprscope control` also accepts `--lang <zh|en>` on every control command: it selects the language of the consent or confirmation card and of the overlay it spawns (default `zh`, or the `HYPRSCOPE_LANG` environment value; an unknown value is a usage error), while CLI stdout stays English. Use `--json` in scripts; the human-readable output only aims to look decent, and column alignment and wording are not guaranteed stable; a bad argument exits with code 2, any other failure with code 1.
 
-A screenshot can be taken in three ways: by default it captures the whole layout, `--monitor NAME` captures a single output, and `--region x,y,w,h` uses global layout coordinates (`grim` wants `X,Y WxH`, and the tool does the conversion). When the session reports a locked state, screenshots are refused by default; pass `--allow-locked` to let them through; output goes to `hyprscope/` under the cache directory by default, and `--output` can move it elsewhere.
+A screenshot can be taken in four ways: by default it captures the whole layout, `--monitor NAME` captures a single output, `--region x,y,w,h` uses global layout coordinates (`grim` wants `X,Y WxH`, and the tool does the conversion), and `--window-id <Hyprland address or foreign-toplevel identifier>` / `--window-app <class>` / `--window-title <exact title>` captures one window even when it is on another workspace or covered. A window capture needs the built `bin/wl-capture` (`pnpm run build:capture`) and works only for mapped windows: a minimized or unmapped window is refused, the cursor is not composited into the image, and a window with a `no_screen_share` rule or a denied screenshot permission yields the compositor's denied placeholder. When the session reports a locked state, screenshots are refused by default; pass `--allow-locked` to let them through; output goes to `hyprscope/` under the cache directory by default, and `--output` can move it elsewhere.
 
 ### DSH plugin
 
-`plugins/dsh-hyprscope/` is the project's native, plug-and-play DSH Host bundle; it turns these commands into eight tools for the model, so a session calls tools instead of composing `node bin/hyprscope.ts ... --json` commands. `hyprscope_observe`, `hyprscope_screenshot` and `hyprscope_events` read the desktop; `hyprscope_lease`, `hyprscope_plan`, `hyprscope_act`, `hyprscope_baseline` and `hyprscope_desktop` go through `hyprscope control`; `hyprscope_act` runs one single-step action as a one-step plan. Observation needs no consent; a desktop change still needs the host's consent in the control lease and an accepted capability baseline, and the plugin adds no bypass.
+`plugins/dsh-hyprscope/` is the project's native, plug-and-play DSH Host bundle; it turns these commands into eight tools for the model, so a session calls tools instead of composing `node bin/hyprscope.ts ... --json` commands. `hyprscope_observe`, `hyprscope_screenshot` and `hyprscope_events` read the desktop; `hyprscope_lease`, `hyprscope_plan`, `hyprscope_act`, `hyprscope_baseline` and `hyprscope_desktop` go through `hyprscope control`; `hyprscope_act` runs one single-step action as a one-step plan. Observation needs no consent; a desktop change still needs the host's consent in the control lease and an accepted capability baseline, and the plugin adds no bypass. The tools that can show a consent card also take an optional `language` (`zh` or `en`; omitted keeps the Chinese default): `hyprscope_lease` `request`, `hyprscope_plan` `run`, `hyprscope_act` and `hyprscope_baseline` `probe`.
 
 Open **Plugins**, choose **Add plugin**, and enter the absolute directory `/home/jw/workspace/dsh-hyprscope/plugins/dsh-hyprscope`; or ask the DSH agent to call `plugin_manager` `install_bundle` with that directory. The bundle only loads on Linux and needs the checkout and Node 22 on the same machine as DSH. The tool surface, configuration keys and limitations are in [docs/DSH-PLUGIN.md](/docs/DSH-PLUGIN.md).
 
@@ -141,11 +149,13 @@ The agent desktop — a nested Hyprland of its own — is implemented; its desig
 
 - The lease does not intercept physical input: the host can use the keyboard and mouse as usual during a lease, and control is ended by the shortcut, the button or the TTL, not by freezing input.
 - An absolute-coordinate click in a plan is a low-confidence action: an irreducible gap remains between the predicate check and the injection (TOCTOU), so such steps require focus, geometry and the result assertion to hold together; actions expressible with the keyboard and dispatch are preferred.
+- Single-window capture needs a compositor that advertises `ext-image-copy-capture`, `ext-foreign-toplevel-list` and `ext-image-capture-source`, plus the built `bin/wl-capture`; if the helper is missing the command says to run `pnpm run build:capture`, and a compositor without those protocols cannot capture a window. Layout, monitor and region captures still use `grim`.
+- Only mapped windows can be window-captured: a minimized or unmapped window is refused, the cursor is not composited into the image, and a window with a `no_screen_share` rule or a denied screenshot permission yields the compositor's denied placeholder.
 - The lease state and the executor both run under the agent's own uid, so the lease binding and the gating are correctness mechanisms for now, not a security boundary; to become a real boundary the lease state would have to move to a separate broker (see `docs/LEASE.md`).
-- Control stays unavailable until a human accepts a capability baseline, and the baseline is only as current as the last probe: `doctor` reports drift, and `run` / `request` refuse a stale or unverified baseline with `CAPABILITY`. Re-run `hyprscope control baseline --probe` after changing machines, upgrading Hyprland or changing the configuration; a baseline written by an older version has no effective values, reads `unverified`, and needs one fresh probe and acceptance.
+- Control stays unavailable until a human accepts a capability baseline, and the baseline is only as current as the last probe: `doctor` reports drift, and `run` / `request` refuse a stale or unverified baseline with `CAPABILITY`. Re-run `hyprscope control baseline --probe` after changing machines, upgrading Hyprland or changing the configuration; a baseline written by an older version has no effective values, reads `unverified`, and needs one fresh probe, which asks the host to confirm the new baseline when it widens.
 - An agent desktop is a window on the host, not a separate machine: it runs under the same uid and filesystem, its nested output follows the host window (`--size` is a request, not a guarantee), and closing that window destroys the desktop. A run executing inside it faults with `target.desktop-closed`.
 - The agent desktop is not persistent across a DSH restart by default; a new DSH session starts its own desktop or attaches the existing one.
-- Editing the generated configuration of a running agent desktop makes its baseline stale, and `baseline --probe` refuses to measure the changed live configuration; restart the desktop, then probe and accept again.
+- Editing the generated configuration of a running agent desktop makes its baseline stale, and `baseline --probe` refuses to measure the changed live configuration; restart the desktop, then probe again (a widening probe asks the host for the confirmation card).
 - Recovery covers only premises the compositor can observe and that can be rebuilt with the dispatch subset; when an app's internal state cannot be picked up again the run faults outright and lets the agent re-plan instead of pretending to recover.
 - Lock state is best-effort: it only reads logind's `LockedHint`, and `locked: null` means only that there is no evidence, which is not the same as the session being unlocked.
 - When several Hyprland instances run on the same machine it picks one by log recency by default without confirming that it still responds; it is better to pass `--signature` explicitly.

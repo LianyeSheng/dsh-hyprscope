@@ -106,6 +106,19 @@ function captureResult(outputPath) {
   fs.writeFileSync(outputPath, PNG_BYTES)
   const monitor = valueAfter('--monitor')
   const region = valueAfter('--region')
+  const windowId = valueAfter('--window-id')
+  const windowApp = valueAfter('--window-app')
+  const windowTitle = valueAfter('--window-title')
+  const selector = windowId !== undefined
+    ? { field: 'identifier', value: windowId }
+    : (windowApp !== undefined
+      ? { field: 'appId', value: windowApp }
+      : (windowTitle !== undefined ? { field: 'title', value: windowTitle } : undefined))
+  const window = selector === undefined ? null : {
+    identifier: selector.field === 'identifier' ? selector.value : '180001c6',
+    appId: selector.field === 'appId' ? selector.value : 'kitty',
+    title: selector.field === 'title' ? selector.value : 'shell',
+  }
   return {
     path: outputPath,
     bytes: PNG_BYTES.length,
@@ -121,7 +134,8 @@ function captureResult(outputPath) {
         width: Number(region.split(',')[2]),
         height: Number(region.split(',')[3]),
       },
-      scope: monitor !== undefined ? 'monitor' : (region !== undefined ? 'region' : 'layout'),
+      scope: window !== null ? 'window' : (monitor !== undefined ? 'monitor' : (region !== undefined ? 'region' : 'layout')),
+      window: window,
     },
   }
 }
@@ -207,21 +221,6 @@ function controlResponse(subcommand) {
     }
   }
   if (subcommand === 'baseline') {
-    if (argv.indexOf('--accept') !== -1) {
-      return {
-        accepted: true,
-        path: path.join(projectDir, '.state', 'hyprscope', 'baseline.json'),
-        state: 'usable',
-        approvedAt: '2026-01-02T03:04:06.000Z',
-        approvedBy: 'human',
-        source: 'overlay',
-        evidenceSha256: 'dd7638165d7a9d5c0cbe2725d55c25eab1c61abc78674f66973cc8412b51d7b6',
-        usable: ['dispatch.window.move'],
-        degraded: [],
-        missingRequired: [],
-        warnings: [],
-      }
-    }
     if (argv.indexOf('--show') !== -1) {
       return {
         state: 'accepted',
@@ -246,7 +245,6 @@ function controlResponse(subcommand) {
       evidence: { dir: path.join(projectDir, 'out', 'baseline', 'probe-test-1') },
       diff: { added: [], removed: [], changed: [] },
       warnings: [],
-      approveCommand: 'hyprscope control baseline --accept',
     }
   }
   if (subcommand === 'desktop') {
@@ -474,7 +472,7 @@ const CAPTURE_VALUE = {
   height: 1,
   sha256: 'a'.repeat(64),
   capturedAt: '2026-01-02T03:04:05.000Z',
-  source: { monitor: null, region: null, scope: 'layout' },
+  source: { monitor: null, region: null, scope: 'layout', window: null },
 }
 
 /** Image attachment reference returned by a fake attachment store. */
@@ -497,7 +495,7 @@ const EVENTS_VALUE = {
 // ---------------------------------------------------------------------------
 // Fake Cordis context, fake project directory, and invocation helpers
 
-/** Every argv the fake CLI recorded, across all tests (for the --accept audit). */
+/** Every argv the fake CLI recorded, across all tests (for the argv safety audit). */
 const recordedCalls = []
 
 /**
@@ -645,7 +643,7 @@ function execContext(agent) {
 
 /**
  * Invoke a tool and archive every argv it caused, so the final audit can prove
- * only `hyprscope_baseline` accept ever asks for an acceptance card.
+ * no tool ever passes the removed `--accept` baseline flag.
  * @param {object} harness Harness under test.
  * @param {string} name Tool name.
  * @param {object} args Tool arguments.
@@ -787,13 +785,39 @@ test('every tool definition is a raw object with the supported JSON-schema subse
   // it has no desktop selector and no accept switch.
   assert.deepEqual(
     Object.keys(harness.definitions.get('hyprscope_act').parameters.properties),
-    ['step', 'reason', 'planId', 'budgetMs', 'maxResumes', 'consentSeconds'],
+    ['step', 'reason', 'planId', 'budgetMs', 'maxResumes', 'consentSeconds', 'language'],
   )
   const stepSchema = harness.definitions.get('hyprscope_act').parameters.properties.step
   assert.equal(stepSchema.type, 'object')
   assert.deepEqual(stepSchema.required, ['op'])
   assert.equal(stepSchema.additionalProperties, true)
   assert.equal(stepSchema.properties.op.type, 'string')
+})
+
+test('language selects the card and overlay rendering language', async (t) => {
+  const harness = makeHarness(t)
+  // The agent picks the language per call; the CLI receives it as --lang and
+  // renders the consent card in that language.
+  await invoke(harness, 'hyprscope_baseline', { action: 'probe', language: 'en' })
+  assert.deepEqual(harness.lastArgv(), [
+    'control', 'baseline', '--probe', '--consent', '45', '--lang', 'en', '--json',
+  ])
+  await invoke(harness, 'hyprscope_lease', { action: 'request', reason: 'demo', language: 'zh' })
+  assert.deepEqual(harness.lastArgv(), [
+    'control', 'request', '--reason', 'demo', '--ttl', '120', '--consent', '45', '--lang', 'zh', '--json',
+  ])
+  for (const name of ['hyprscope_lease', 'hyprscope_plan', 'hyprscope_act', 'hyprscope_baseline']) {
+    const definition = harness.definitions.get(name)
+    assert.deepEqual(definition.parameters.properties.language.enum, ['zh', 'en'],
+      `${name} exposes the render language enum`)
+  }
+  // An unknown language fails locally, before any CLI process is spawned.
+  const before = harness.calls().length
+  await assert.rejects(
+    invoke(harness, 'hyprscope_act', { step: { op: 'pause', ms: 5 }, reason: 'demo', language: 'fr' }),
+    /language/,
+  )
+  assert.equal(harness.calls().length, before)
 })
 
 test('only the read-only tools declare isConcurrencySafe', (t) => {
@@ -842,7 +866,8 @@ test('apply registers the hyprscope systemPrompt section when the service is ava
   assert.match(section.text, /hyprscope_act/)
   assert.match(section.text, /hyprscope_plan run/)
   assert.match(section.text, /hyprscope_baseline action "probe"/)
-  assert.match(section.text, /hyprscope_baseline action "accept"/)
+  assert.match(section.text, /confirmation card/)
+  assert.doesNotMatch(section.text, /action "accept"/)
   assert.match(section.text, /Never approve a consent card/)
 })
 
@@ -995,7 +1020,7 @@ test('observe doctor render keeps only the stable sections when still too long',
 // ---------------------------------------------------------------------------
 // CLI failure mapping
 
-test('CAPABILITY failures name the baseline probe and the human accept step', async (t) => {
+test('CAPABILITY failures name the baseline probe and its confirmation card', async (t) => {
   const harness = makeHarness(t)
   harness.setMode({
     error: { code: 'CAPABILITY', message: 'baseline is missing', details: { missing: ['dispatch.window.move'] } },
@@ -1006,7 +1031,8 @@ test('CAPABILITY failures name the baseline probe and the human accept step', as
       assert.match(error.message, /^hyprscope CAPABILITY: baseline is missing/)
       assert.ok(error.message.includes('details: {"missing":["dispatch.window.move"]}'))
       assert.match(error.message, /hyprscope_baseline with action "probe"/)
-      assert.match(error.message, /action "accept"/)
+      assert.match(error.message, /confirmation card/)
+      assert.doesNotMatch(error.message, /action "accept"/)
       return true
     },
   )
@@ -1309,6 +1335,89 @@ test('screenshot maps monitor and region scopes plus instance flags', async (t) 
   ])
   assert.equal(regionValue.source.scope, 'region')
   assert.deepEqual(regionValue.source.region, region)
+})
+
+test('screenshot maps one window selector to its flag plus instance flags', async (t) => {
+  const harness = makeHarness(t)
+  const definition = harness.definitions.get('hyprscope_screenshot')
+  const windowSchema = definition.parameters.properties.window
+  assert.equal(windowSchema.type, 'object')
+  assert.equal(windowSchema.additionalProperties, false)
+  assert.deepEqual(Object.keys(windowSchema.properties), ['id', 'app', 'title'])
+  assert.deepEqual(definition.parameters.properties.window.required, undefined)
+
+  const idOutput = join(harness.projectDir, 'window-id.png')
+  const idValue = await invoke(harness, 'hyprscope_screenshot', {
+    scope: 'layout',
+    window: { id: '180001c6' },
+    output: idOutput,
+    desktop: 'agent',
+    signature: 'sig-1',
+    runtimeDir: '/run/user/1000/hypr/sig-1',
+  })
+  assert.deepEqual(harness.lastArgv(), [
+    'screenshot',
+    '--output', idOutput,
+    '--window-id', '180001c6',
+    '--desktop', 'agent',
+    '--signature', 'sig-1',
+    '--runtime-dir', '/run/user/1000/hypr/sig-1',
+    '--json',
+  ])
+  assert.equal(idValue.source.scope, 'window')
+  assert.deepEqual(idValue.source.monitor, null)
+  assert.deepEqual(idValue.source.window, { identifier: '180001c6', appId: 'kitty', title: 'shell' })
+
+  const appOutput = join(harness.projectDir, 'window-app.png')
+  const appValue = await invoke(harness, 'hyprscope_screenshot', {
+    window: { app: 'zen' },
+    output: appOutput,
+    allowLocked: true,
+  })
+  assert.deepEqual(harness.lastArgv(), [
+    'screenshot', '--output', appOutput, '--window-app', 'zen', '--allow-locked', '--json',
+  ])
+  assert.equal(appValue.source.scope, 'window')
+  assert.equal(appValue.source.window.appId, 'zen')
+
+  const titleOutput = join(harness.projectDir, 'window-title.png')
+  const titleValue = await invoke(harness, 'hyprscope_screenshot', {
+    window: { title: 'DSH docs' },
+    output: titleOutput,
+  })
+  assert.deepEqual(harness.lastArgv(), [
+    'screenshot', '--output', titleOutput, '--window-title', 'DSH docs', '--json',
+  ])
+  assert.equal(titleValue.source.window.title, 'DSH docs')
+})
+
+test('screenshot rejects a malformed or misplaced window selector without spawning', async (t) => {
+  const harness = makeHarness(t)
+  const cases = [
+    [{ window: null }, /hyprscope_screenshot: window must be an object with exactly one of id, app, or title/],
+    [{ window: 'kitty' }, /hyprscope_screenshot: window must be an object with exactly one of id, app, or title/],
+    [{ window: {} }, /hyprscope_screenshot: window must provide exactly one of id, app, or title/],
+    [{ window: { id: '0x55', app: 'kitty' } }, /window must provide exactly one of id, app, or title/],
+    [{ window: { id: '' } }, /hyprscope_screenshot: window\.id must be a non-empty string/],
+    [{ window: { title: '  ' } }, /hyprscope_screenshot: window\.title must be a non-empty string/],
+    [{ window: { id: '0x55' }, monitor: 'HDMI-A-1' }, /window is only valid when scope is omitted or "layout"/],
+    [
+      { window: { id: '0x55' }, region: { x: 0, y: 0, width: 1, height: 1 } },
+      /window is only valid when scope is omitted or "layout"/,
+    ],
+    [
+      { window: { id: '0x55' }, scope: 'monitor', monitor: 'HDMI-A-1' },
+      /window is only valid when scope is omitted or "layout"/,
+    ],
+    [
+      { window: { id: '0x55' }, scope: 'region', region: { x: 0, y: 0, width: 1, height: 1 } },
+      /window is only valid when scope is omitted or "layout"/,
+    ],
+  ]
+  for (const [args, pattern] of cases) {
+    await assert.rejects(invoke(harness, 'hyprscope_screenshot', args), pattern)
+  }
+  assert.equal(harness.calls().length, 0)
 })
 
 test('screenshot defaults the output below the configured screenshotDir', async (t) => {
@@ -1671,7 +1780,8 @@ test('act CAPABILITY failures keep the probe and confirmation-card hints', async
       assert.match(error.message, /^hyprscope CAPABILITY: baseline is stale/)
       assert.ok(error.message.includes('details: {"reasons":["config changed"]}'))
       assert.match(error.message, /hyprscope_baseline with action "probe"/)
-      assert.match(error.message, /action "accept"/)
+      assert.match(error.message, /confirmation card/)
+      assert.doesNotMatch(error.message, /action "accept"/)
       return true
     },
   )
@@ -1729,21 +1839,40 @@ test('baseline probe maps --read-only and --consent', async (t) => {
   assert.deepEqual(harness.lastArgv(), ['control', 'baseline', '--probe', '--consent', '45', '--json'])
 })
 
-test('baseline accept asks for a confirmation card and returns after it', async (t) => {
-  const harness = makeHarness(t)
-  const value = await invoke(harness, 'hyprscope_baseline', { action: 'accept', consentSeconds: 90 })
-  assert.deepEqual(harness.lastArgv(), ['control', 'baseline', '--accept', '--consent', '90', '--json'])
-  assert.equal(value.accepted, true)
-  assert.equal(value.source, 'overlay')
-})
-
-test('baseline rejects flags that belong to the other action and exposes accept only through the card', async (t) => {
+test('baseline probe carries the host confirmation card and never passes --accept', async (t) => {
   const harness = makeHarness(t)
   const definition = harness.definitions.get('hyprscope_baseline')
-  assert.deepEqual(definition.parameters.properties.action.enum, ['show', 'probe', 'accept'])
-  // There is no boolean accept switch: acceptance is an action that asks the
-  // desktop for a confirmation card, never a flag the agent can set silently.
+  const description = definition.description
+  assert.match(description, /Inspect or probe/)
+  assert.doesNotMatch(description, /\baccept the capability baseline\b/)
+  assert.match(description, /When the measurement widens the accepted baseline/)
+  assert.match(description, /same call also shows the host a confirmation card/)
+  assert.match(description, /returns only after the host clicks Allow or Deny/)
+  assert.match(description, /draft stays pending/)
+  assert.match(description, /never answers that card/)
+  assert.match(description, /never claims the baseline was accepted/)
+
+  const value = await invoke(harness, 'hyprscope_baseline', { action: 'probe', consentSeconds: 90 })
+  assert.deepEqual(harness.lastArgv(), ['control', 'baseline', '--probe', '--consent', '90', '--json'])
+  assert.equal(harness.lastArgv().includes('--accept'), false)
+  assert.equal(value.probeId, 'probe-test-1')
+})
+
+test('baseline rejects the removed accept action and flags that belong to another action', async (t) => {
+  const harness = makeHarness(t)
+  const definition = harness.definitions.get('hyprscope_baseline')
+  assert.deepEqual(definition.parameters.properties.action.enum, ['show', 'probe'])
+  // Acceptance is carried by the probe call itself: there is no accept action
+  // and no boolean switch the agent could set silently.
   assert.equal(Object.hasOwn(definition.parameters.properties, 'accept'), false)
+  assert.match(
+    definition.parameters.properties.action.description,
+    /may ask the host to confirm a wider baseline/,
+  )
+  assert.match(
+    definition.parameters.properties.consentSeconds.description,
+    /probe only: how long the consent and confirmation cards wait/,
+  )
   assert.match(definition.description, /confirmation card/)
   assert.match(definition.description, /never answers that card/)
 
@@ -1756,8 +1885,8 @@ test('baseline rejects flags that belong to the other action and exposes accept 
     /hyprscope_baseline: diff is only valid with action "show"/,
   )
   await assert.rejects(
-    invoke(harness, 'hyprscope_baseline', { action: 'accept', diff: true }),
-    /hyprscope_baseline: diff is only valid with action "show"/,
+    invoke(harness, 'hyprscope_baseline', { action: 'accept' }),
+    /hyprscope_baseline: action must be one of show, probe/,
   )
   assert.equal(harness.calls().length, 0)
 })
@@ -1980,18 +2109,40 @@ test('screenshot render is [text] without an image and [text, image] with one', 
   assert.deepEqual(withImage[1], { type: 'image', attachment: IMAGE_REF })
 })
 
+test('screenshot render appends the captured window only for a window source', (t) => {
+  const harness = makeHarness(t)
+  const definition = harness.definitions.get('hyprscope_screenshot')
+  const windowSource = {
+    monitor: null,
+    region: null,
+    scope: 'window',
+    window: { identifier: '180001c6', appId: 'zen', title: 'DSH docs' },
+  }
+
+  const windowText = renderText(harness, 'hyprscope_screenshot', {}, {
+    ...CAPTURE_VALUE,
+    source: windowSource,
+    imageError: 'no attachment store',
+  })
+  assert.match(windowText, /scope=window window=zen "DSH docs" \(image not attached: no attachment store\)$/)
+
+  const layoutText = renderText(harness, 'hyprscope_screenshot', {}, CAPTURE_VALUE)
+  assert.match(layoutText, /scope=layout$/)
+  assert.equal(definition.output.render({}, { ...CAPTURE_VALUE, source: windowSource }).length, 1)
+})
+
 // ---------------------------------------------------------------------------
 // Global safety audit over every command the plugin generated in this run
 
-test('every argv ends with --json and only baseline accept asks for an acceptance', () => {
+test('every argv ends with --json and no call passes the removed --accept flag', () => {
   assert.ok(recordedCalls.length >= 20, `expected many recorded CLI calls, got ${recordedCalls.length}`)
   for (const call of recordedCalls) {
     assert.ok(Array.isArray(call.argv))
     assert.equal(call.argv.at(-1), '--json', `--json must be last: ${JSON.stringify(call.argv)}`)
-    if (call.argv.includes('--accept')) {
-      assert.equal(call.argv[0], 'control', `--accept outside the control surface: ${JSON.stringify(call.argv)}`)
-      assert.equal(call.argv[1], 'baseline', `--accept outside baseline: ${JSON.stringify(call.argv)}`)
-    }
+    // Baseline acceptance now happens inside the probe call, so the removed
+    // `--accept` flag must never reach the CLI from any tool.
+    assert.equal(call.argv.includes('--accept'), false,
+      `--accept must never be generated: ${JSON.stringify(call.argv)}`)
     // The fake records its own cwd; a shell detour or a retargeted projectDir
     // would show up here.
     assert.equal(typeof call.cwd, 'string')

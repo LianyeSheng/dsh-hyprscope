@@ -38,6 +38,15 @@ export interface CaptureOptions {
   env?: NodeJS.ProcessEnv
 }
 
+/** One window a capture was taken from, when the source was a foreign toplevel. */
+export interface WindowCaptureSource {
+  /** Foreign-toplevel identifier the compositor reported. */
+  identifier: string
+  /** Application id (the window class). */
+  appId: string
+  title: string
+}
+
 /** Result of one capture. */
 export interface CaptureResult {
   path: string
@@ -46,7 +55,13 @@ export interface CaptureResult {
   height: number
   sha256: string
   capturedAt: string
-  source: { monitor: string | null; region: Region | null; scope: 'region' | 'monitor' | 'layout' }
+  source: {
+    monitor: string | null
+    region: Region | null
+    scope: 'region' | 'monitor' | 'layout' | 'window'
+    /** Present only for `scope: 'window'` captures. */
+    window: WindowCaptureSource | null
+  }
 }
 
 /**
@@ -77,6 +92,16 @@ export function pngDimensions(buffer: Buffer): PngDimensions {
 export function captureDirectory(env: NodeJS.ProcessEnv = process.env): string {
   const base = env.XDG_CACHE_HOME ?? join(homedir(), '.cache')
   return join(base, 'hyprscope')
+}
+
+/**
+ * Default destination for a capture that was not given an output path.
+ * @param env Environment to read.
+ * @param now Capture time.
+ * @returns Absolute PNG path under the cache directory.
+ */
+export function defaultCapturePath(env: NodeJS.ProcessEnv = process.env, now: Date = new Date()): string {
+  return join(captureDirectory(env), `screenshot-${now.toISOString().replace(/[:.]/g, '-')}.png`)
 }
 
 /**
@@ -121,9 +146,8 @@ export async function capture(session: Session, options: CaptureOptions = {}): P
   const capturedAt = (options.now ?? new Date()).toISOString()
   let path = options.output
   if (path === undefined) {
-    const directory = captureDirectory(env)
-    await mkdir(directory, { recursive: true })
-    path = join(directory, `screenshot-${capturedAt.replace(/[:.]/g, '-')}.png`)
+    path = defaultCapturePath(env, options.now ?? new Date())
+    await mkdir(dirname(path), { recursive: true })
   } else {
     await mkdir(dirname(path), { recursive: true })
   }
@@ -165,6 +189,7 @@ export async function capture(session: Session, options: CaptureOptions = {}): P
       monitor: options.monitor ?? null,
       region: options.region ?? null,
       scope: options.region !== undefined ? 'region' : options.monitor !== undefined ? 'monitor' : 'layout',
+      window: null,
     },
   }
 }

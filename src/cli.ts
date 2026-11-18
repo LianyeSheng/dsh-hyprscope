@@ -10,7 +10,8 @@ import { EventStream } from './events.ts'
 import * as format from './format.ts'
 import { hyprctlJson } from './hyprctl.ts'
 import { readLockState } from './lock.ts'
-import { capture, parseRegion } from './screenshot.ts'
+import { capture, defaultCapturePath, parseRegion } from './screenshot.ts'
+import { captureToplevel, listToplevels } from './toplevel.ts'
 import { listInstanceDirs } from './session.ts'
 import { parseDesktopTarget, resolveTarget } from './desktop/target.ts'
 import type { DesktopTarget, ResolvedTarget } from './desktop/types.ts'
@@ -39,7 +40,7 @@ Commands:
   monitors      Monitors and geometry
   layers        Layer-shell surfaces (bars, launchers, wallpaper)
   cursor        Pointer position in global layout coordinates
-  screenshot    Capture a PNG of the layout, one monitor, or a region
+  screenshot    Capture a PNG of the layout, one monitor, a region, or one window
   events        Stream compositor events
   control       Lease-gated control surface (run "hyprscope control --help")
 
@@ -56,6 +57,9 @@ Screenshot options:
   --output <path>        Destination PNG path (default: $XDG_CACHE_HOME/hyprscope)
   --monitor <name>       Capture one output
   --region <x,y,w,h>     Capture a region in global layout coordinates
+  --window-id <id>       Capture one window by Hyprland address (0x…) or toplevel identifier
+  --window-app <class>   Capture one window by application id, even off-screen
+  --window-title <text>  Capture one window by exact title, even off-screen
   --allow-locked         Permit capture when the session reports a lock
 
 Event options:
@@ -78,6 +82,9 @@ export interface CliOptions {
   output?: string
   monitor?: string
   region?: string
+  windowId?: string
+  windowApp?: string
+  windowTitle?: string
   match?: string
   count?: number
 }
@@ -92,6 +99,7 @@ export interface Io {
 const VALUE_OPTIONS: Record<string, keyof CliOptions> = {
   '--signature': 'signature', '--runtime-dir': 'runtimeDir', '--desktop': 'desktop', '--timeout': 'timeoutMs',
   '--output': 'output', '--monitor': 'monitor', '--region': 'region', '--match': 'match', '--count': 'count',
+  '--window-id': 'windowId', '--window-app': 'windowApp', '--window-title': 'windowTitle',
 }
 
 /** Options that are pure switches. */
@@ -172,6 +180,61 @@ export function parseArgs(argv: string[]): { options: CliOptions; command: strin
  */
 function print<T>(io: Io, value: T, json: boolean, render: (value: T) => string): void {
   io.stdout.write(json ? `${JSON.stringify(value, null, 2)}\n` : `${render(value)}\n`)
+}
+
+/**
+ * Resolve a screenshot window selector to a foreign-toplevel identifier.
+ *
+ * `--window-id` accepts a Hyprland address (`0x…`), which is translated through
+ * `hyprctl clients` into the window's stable id, or a foreign-toplevel identifier
+ * directly. The other selectors match the compositor's own toplevel list, so the
+ * window does not have to be visible on the active workspace.
+ * @param session Discovered session.
+ * @param options Parsed command line.
+ * @returns Identifier the capture helper accepts.
+ */
+async function resolveWindowIdentifier(session: Session, options: CliOptions): Promise<string> {
+  const timeoutMs = options.timeoutMs ?? 5000
+  if (options.windowId !== undefined) {
+    const wanted = options.windowId.trim()
+    if (wanted === '') throw usage('Expected a window identifier after --window-id')
+    if (!wanted.startsWith('0x')) return wanted
+    const clients = await hyprctlJson<RawClient[]>(session, 'clients', [], { timeoutMs }) ?? []
+    const client = clients.find(entry => entry.address.toLowerCase() === wanted.toLowerCase())
+    if (client === undefined) {
+      throw new HyprscopeError(ErrorCode.SCREENSHOT_FAILED, `No window has the address ${wanted}`, { address: wanted })
+    }
+    if (client.stableId === undefined || client.stableId === '') {
+      throw new HyprscopeError(ErrorCode.SCREENSHOT_FAILED,
+        'The compositor did not report a foreign-toplevel identifier for this window', {
+          address: wanted,
+          hint: 'This build may not implement ext-foreign-toplevel-list; capture a region instead',
+        })
+    }
+    return client.stableId
+  }
+  const label = options.windowApp !== undefined ? 'application id' : 'title'
+  const wanted = options.windowApp ?? options.windowTitle ?? ''
+  if (wanted === '') throw usage('Expected a value for the window selector')
+  const toplevels = await listToplevels(session, { timeoutMs })
+  const matches = toplevels.filter(entry => options.windowApp !== undefined
+    ? entry.appId === wanted
+    : entry.title === wanted)
+  if (matches.length === 0) {
+    throw new HyprscopeError(ErrorCode.SCREENSHOT_FAILED, `No window has this ${label}`, {
+      selector: wanted,
+      available: toplevels.map(entry => options.windowApp !== undefined ? entry.appId : entry.title),
+    })
+  }
+  if (matches.length > 1) {
+    throw new HyprscopeError(ErrorCode.USAGE,
+      `${matches.length} windows match this ${label}; use --window-id to pick one`, {
+        candidates: matches.map(entry => ({
+          identifier: entry.identifier, appId: entry.appId, title: entry.title,
+        })),
+      })
+  }
+  return matches[0]!.identifier
 }
 
 /**
@@ -469,6 +532,22 @@ export async function main(
         const lock = await readLockState()
         if (lock.locked === true && !options.allowLocked) {
           throw new HyprscopeError(ErrorCode.LOCKED, 'The session reports a lock; pass --allow-locked to capture anyway', { lock })
+        }
+        const selectors = [options.windowId, options.windowApp, options.windowTitle]
+          .filter((value): value is string => value !== undefined)
+        if (selectors.length > 1) throw usage('Choose one of --window-id, --window-app, or --window-title')
+        if (selectors.length === 1) {
+          if (options.monitor !== undefined || options.region !== undefined) {
+            throw usage('A window capture cannot be combined with --monitor or --region')
+          }
+          const identifier = await resolveWindowIdentifier(session, options)
+          const result = await captureToplevel(session, {
+            output: options.output ?? defaultCapturePath(),
+            identifier,
+            timeoutMs: options.timeoutMs ?? 10000,
+          })
+          print(io, result, options.json, format.renderScreenshot)
+          return 0
         }
         const result = await capture(session, {
           output: options.output,

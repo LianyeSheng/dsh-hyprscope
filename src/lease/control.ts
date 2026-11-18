@@ -1,10 +1,11 @@
 /** Lease lifecycle: request, consent, hold, release, and stale cleanup. */
 import { spawn } from 'node:child_process'
 import { ErrorCode, HyprscopeError } from '../errors.ts'
+import type { RenderLanguage } from '../i18n.ts'
 import { hyprscopeBin, startOverlay, stopOverlayPid, type OverlayFactory } from './overlay.ts'
 import {
   acquireLock, isTerminal, newLeaseId, newLeaseState, processAlive, readControl, readDecision, readState,
-  releaseLock, removeFile, writeDecision, writeControl, writeState, ensureLeaseDirectory, leasePaths,
+  releaseLock, removeFile, readAnswer, writeDecision, writeControl, writeState, ensureLeaseDirectory, leasePaths,
   isActive, readHeartbeat, writeHeartbeat, clearNotice, clearProgress, clearInterference,
   clearInterferenceDecision, type LeasePaths, type LeasePhase, type LeaseState, type LeasePlanSummary,
   type LeaseConfirmCard,
@@ -55,6 +56,8 @@ export interface RequestOptions {
   maxResumes?: number
   /** Wall-clock budget from the request time; defaults to null (unbounded). */
   totalBudgetMs?: number | null
+  /** Language of the consent card and the overlay; defaults to Chinese. */
+  lang?: RenderLanguage
 }
 
 /** Outcome of one consent request, whatever mode it asked for. */
@@ -156,6 +159,7 @@ async function finalize(paths: LeasePaths, state: LeaseState, phase: LeasePhase,
   await clearNotice(paths)
   await clearInterference(paths)
   await clearInterferenceDecision(paths)
+  await removeFile(paths.interferenceAnswerFile)
   await writeState(paths, finished)
   // A normal end (done / denied / expired) lets the overlay render the outcome
   // for its linger window and exit by itself. A revocation is the host taking
@@ -163,6 +167,7 @@ async function finalize(paths: LeasePaths, state: LeaseState, phase: LeasePhase,
   if (phase === 'revoked') await stopOverlayPid(finished.overlayPid)
   await releaseLock(paths)
   await removeFile(paths.decisionFile)
+  await removeFile(paths.answerFile)
   await removeFile(paths.controlFile)
   await removeFile(paths.heartbeatFile)
   return finished
@@ -221,11 +226,13 @@ export async function requestLease(options: RequestOptions): Promise<RequestOutc
   })
   await acquireLock(paths, { leaseId, pid: process.pid, at: now.toISOString() })
   await removeFile(paths.decisionFile)
+  await removeFile(paths.answerFile)
   await removeFile(paths.controlFile)
   await clearNotice(paths)
   await clearProgress(paths)
   await clearInterference(paths)
   await clearInterferenceDecision(paths)
+  await removeFile(paths.interferenceAnswerFile)
   await writeHeartbeat(paths, process.pid)
   if (approvalOnly && options.consent === 'programmatic') {
     // The desktop's own consent already covers this act; record it as approved
@@ -236,7 +243,7 @@ export async function requestLease(options: RequestOptions): Promise<RequestOutc
   let overlayStarted = false
   try {
     await writeState(paths, state)
-    const spawnOverlay = options.spawnOverlay ?? ((overlayPaths, overlayState) => startOverlay(overlayPaths, overlayState, { env }))
+    const spawnOverlay = options.spawnOverlay ?? ((overlayPaths, overlayState) => startOverlay(overlayPaths, overlayState, { env, lang: options.lang }))
     const overlay = await spawnOverlay(paths, state)
     overlayStarted = true
     state.overlayPid = overlay.pid
@@ -328,11 +335,13 @@ export async function grantLease(options: GrantOptions): Promise<RequestOutcome>
   })
   await acquireLock(paths, { leaseId, pid: process.pid, at: now.toISOString() })
   await removeFile(paths.decisionFile)
+  await removeFile(paths.answerFile)
   await removeFile(paths.controlFile)
   await clearNotice(paths)
   await clearProgress(paths)
   await clearInterference(paths)
   await clearInterferenceDecision(paths)
+  await removeFile(paths.interferenceAnswerFile)
   await writeHeartbeat(paths, process.pid)
   const grantedAt = new Date(now.getTime())
   const granted: LeaseState = {
@@ -449,6 +458,13 @@ async function waitForDecision(
     if (Date.now() - lastHeartbeat >= 500) {
       await writeHeartbeat(paths, process.pid)
       lastHeartbeat = Date.now()
+    }
+    // The overlay answers by writing the raw text; recording the decision and
+    // ending the wait stays in this process, so a click never runs a CLI command.
+    const answer = await readAnswer(paths.answerFile)
+    if (answer === 'allow' || answer === 'deny') {
+      await removeFile(paths.answerFile)
+      return { action: answer, source: 'overlay' }
     }
     const decision = await readDecision(paths)
     if (decision !== null) {

@@ -137,6 +137,28 @@ test('accept asks the host to confirm the exact draft before writing', async (t)
   assert.match(seen.card.lines.join('\n'), /sha256 d{1}/)
 })
 
+test('the confirmation card renders in the language the caller chose', async (t) => {
+  const { env, dir } = await pendingState('facts\n')
+  t.after(async () => { await rm(dir, { recursive: true, force: true }) })
+  const requests: BaselineConfirmRequest[] = []
+  await acceptBaseline({
+    env,
+    lang: 'en',
+    confirm: async (request) => {
+      requests.push(request)
+      return { approved: true, source: 'overlay', phase: 'released' }
+    },
+  })
+  const seen = requests[0]
+  assert.ok(seen !== undefined)
+  assert.match(seen.card.title, /Accept the capability baseline/)
+  assert.match(seen.card.acceptLabel, /Allow and accept/)
+  assert.match(seen.card.denyLabel, /Deny/)
+  assert.match(seen.card.lines.join('\n'), /Status: usable/)
+  assert.match(seen.card.lines.join('\n'), /Required capabilities: 7\/7 measured/)
+  assert.match(seen.reason, /accept the measured capability baseline of this machine/)
+})
+
 test('a denied confirmation leaves the draft unaccepted', async (t) => {
   const { env, dir } = await pendingState('facts\n')
   t.after(async () => { await rm(dir, { recursive: true, force: true }) })

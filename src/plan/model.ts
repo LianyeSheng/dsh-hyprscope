@@ -208,6 +208,8 @@ export interface PlanStep {
   pinned?: boolean
   label?: string
   region?: AnchorRect
+  /** Capture this single window instead of a region; the two are exclusive. */
+  window?: WindowTarget
   ms?: number
   kind?: EventKind
   timeoutMs?: number

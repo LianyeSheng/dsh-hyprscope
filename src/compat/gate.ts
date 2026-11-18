@@ -59,7 +59,7 @@ export function planCapabilityIssues(plan: Plan, baseline: LoadedBaseline | null
       capability: null,
       level: null,
       message: 'No accepted capability baseline exists on this machine, so control is unavailable; '
-        + 'run "hyprscope control baseline --probe" and accept the result first',
+        + 'run "hyprscope control baseline --probe" and let the host accept the confirmation card',
     }]
   }
   if (baseline.state === 'incomplete') return missingRequiredIssues(baseline)
@@ -157,7 +157,7 @@ export function freshnessIssues(staleness: StalenessReport | null): CapabilityIs
     }]
   }
   if (staleness.verdict === 'fresh') return []
-  const command = 'run "hyprscope control baseline --probe" and accept the result'
+  const command = 'run "hyprscope control baseline --probe" and let the host accept the confirmation card'
   if (staleness.verdict === 'unverified') {
     return [{
       path: '$', capability: null, level: null,

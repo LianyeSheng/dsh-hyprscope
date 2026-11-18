@@ -38,11 +38,163 @@ ShellRoot {
         || (root.baseDirectory !== "" ? root.baseDirectory + "/progress.json" : "")
     property string interferencePath: Quickshell.env("HYPRSCOPE_INTERFERENCE")
         || (root.baseDirectory !== "" ? root.baseDirectory + "/interference.json" : "")
+    // A click answers a card by writing these raw files; the waiting tool records
+    // the decision and continues, so no consent click ever spawns the CLI.
+    property string answerPath: Quickshell.env("HYPRSCOPE_ANSWER")
+        || (root.baseDirectory !== "" ? root.baseDirectory + "/answer" : "")
+    property string interferenceAnswerPath: Quickshell.env("HYPRSCOPE_INTERFERENCE_ANSWER")
+        || (root.baseDirectory !== "" ? root.baseDirectory + "/interference-answer" : "")
     property string nodePath: Quickshell.env("HYPRSCOPE_NODE") || "node"
     property string binPath: Quickshell.env("HYPRSCOPE_BIN") || ""
 
     // How long the outcome stays on screen after control returns.
     property int lingerMs: 2400
+
+    // The TypeScript launcher passes HYPRSCOPE_LANG; only `en` switches the
+    // overlay to English. Anything else, including a missing value, keeps the
+    // historical Chinese rendering.
+    property string language: Quickshell.env("HYPRSCOPE_LANG") === "en" ? "en" : "zh"
+
+    // Every string the overlay renders lives here; tr()/fmt() select it for the
+    // current language, so no rendered text is hard-coded in one language.
+    property var strings: ({
+        zh: {
+            // Consent card.
+            cardFallbackTitle: "Agent 请求操控桌面",
+            allowFallback: "允许操控",
+            denyFallback: "拒绝",
+            reasonFallback: "(未说明原因)",
+            consentBody: "同意后，agent 最多操控 {time}。期间可以随时按 SUPER + ALT + ESC 收回控制。",
+            autoDenyIn: "还剩 {time} 自动拒绝",
+            planLineOne: "计划 · 1 步",
+            planLineMany: "计划 · {steps} 步",
+            ttlUnknown: "一段时间",
+            ttlSeconds: "{seconds} 秒",
+            secondsShort: "{seconds}s",
+
+            // Execution banner and receipt.
+            recovering: "正在恢复…",
+            progressStepRecovery: "第 {step}/{total} 步（第 {attempt} 次恢复）",
+            progressStep: "第 {step}/{total} 步",
+            progressPreparing: "正在准备执行…",
+            progressRunning: "执行中 {step}/{total}",
+            progressCompleted: "执行完成",
+            progressCompletedSteps: "执行完成 · {total} 步",
+            progressCompletedRecovery: "执行完成（含 {attempt} 次恢复）",
+            progressCompletedStepsRecovery: "执行完成 · {total} 步（含 {attempt} 次恢复）",
+            progressFaulted: "执行失败",
+            progressRevoked: "控制已被收回",
+
+            bannerRecovering: "恢复中",
+            bannerGranted: "Agent 正在操控桌面",
+            bannerHandingOver: "正在交接控制…",
+            bannerDenied: "已拒绝本次请求",
+            bannerExpired: "授权超时，未执行",
+            bannerRevoked: "控制已被收回",
+            bannerCompleted: "执行完成",
+            bannerFaulted: "执行失败",
+            bannerReturned: "控制已交还",
+            bannerRemaining: "剩余 {time} · SUPER + ALT + ESC 收回",
+            bannerSubmitted: "已提交授权请求，等待租约生效",
+            stopNow: "立即收回",
+
+            // Blocking interference prompt.
+            interferenceTitle: "检测到外部操作",
+            interferenceDetailFallback: "(未提供细节)",
+            interferenceAttempt: "第 {attempt}/{max} 次恢复",
+            interferenceExtra: "+{count} 项",
+            continueRestore: "继续将恢复前提",
+            continueBudget: "并追加 {time} 执行窗口",
+            continueRecoveries: "（本次运行最多恢复 {max} 次）",
+            interferenceStep: "第 {position} 步 · {status}",
+            interferenceCountdown: "{seconds} 秒后自动终止",
+            interferenceAbort: "终止操作",
+            interferenceContinue: "继续执行",
+
+            // Local error text.
+            errorMissingAnswerPath: "内部错误：缺少回答路径",
+            errorAnswerTimeout: "授权请求没有响应，请重试",
+            errorAnswerWrite: "回答写入失败（exit {code}）"
+        },
+        en: {
+            // Consent card.
+            cardFallbackTitle: "Agent requests desktop control",
+            allowFallback: "Allow control",
+            denyFallback: "Deny",
+            reasonFallback: "(no reason given)",
+            consentBody: "After you allow, the agent may control the desktop for up to {time}. Press SUPER + ALT + ESC at any time to take control back.",
+            autoDenyIn: "Auto-deny in {time}",
+            planLineOne: "plan · 1 step",
+            planLineMany: "plan · {steps} steps",
+            ttlUnknown: "a limited time",
+            ttlSeconds: "{seconds} s",
+            secondsShort: "{seconds} s",
+
+            // Execution banner and receipt.
+            recovering: "Recovering…",
+            progressStepRecovery: "Step {step}/{total} (recovery {attempt})",
+            progressStep: "Step {step}/{total}",
+            progressPreparing: "Preparing…",
+            progressRunning: "Running {step}/{total}",
+            progressCompleted: "Execution complete",
+            progressCompletedSteps: "Execution complete · {total} steps",
+            progressCompletedRecovery: "Execution complete (including recovery {attempt})",
+            progressCompletedStepsRecovery: "Execution complete · {total} steps (including recovery {attempt})",
+            progressFaulted: "Execution failed",
+            progressRevoked: "Control was revoked",
+
+            bannerRecovering: "Recovering",
+            bannerGranted: "The agent is controlling the desktop",
+            bannerHandingOver: "Handing over control…",
+            bannerDenied: "Request denied",
+            bannerExpired: "Approval timed out; nothing ran",
+            bannerRevoked: "Control was revoked",
+            bannerCompleted: "Execution complete",
+            bannerFaulted: "Execution failed",
+            bannerReturned: "Control returned",
+            bannerRemaining: "{time} remaining · SUPER + ALT + ESC to take back",
+            bannerSubmitted: "Approval requested; waiting for the lease",
+            stopNow: "Stop now",
+
+            // Blocking interference prompt.
+            interferenceTitle: "Detected external activity",
+            interferenceDetailFallback: "(no details given)",
+            interferenceAttempt: "Recovery {attempt}/{max}",
+            interferenceExtra: "+{count} more",
+            continueRestore: "Continue restores the premises",
+            continueBudget: " and adds {time} to the execution window",
+            continueRecoveries: " (recovery allowance: {max})",
+            interferenceStep: "Step {position} · {status}",
+            interferenceCountdown: "Auto-abort in {seconds} s",
+            interferenceAbort: "Abort",
+            interferenceContinue: "Continue",
+
+            // Local error text.
+            errorMissingAnswerPath: "Internal error: missing answer path",
+            errorAnswerTimeout: "The approval request did not respond; try again",
+            errorAnswerWrite: "Failed to write the answer (exit {code})"
+        }
+    })
+
+    // One string for the current language; an unknown key renders as itself so a
+    // missing entry shows up in the overlay instead of blanking the line.
+    function tr(key) {
+        const table = root.strings[root.language] || root.strings.zh
+        const text = table[key]
+        return typeof text === "string" ? text : key
+    }
+
+    // tr() with `{name}` placeholders replaced from `values`.
+    function fmt(key, values) {
+        let text = root.tr(key)
+        if (!values) return text
+        const names = Object.keys(values)
+        for (let index = 0; index < names.length; index += 1) {
+            const name = names[index]
+            text = text.split("{" + name + "}").join(String(values[name]))
+        }
+        return text
+    }
 
     function phase() {
         return root.lease && root.lease.phase ? root.lease.phase : ""
@@ -131,7 +283,9 @@ ShellRoot {
 
     function ttlText() {
         const ttl = Number(root.lease.ttlMs)
-        return isNaN(ttl) ? "一段时间" : Math.round(ttl / 1000) + " 秒"
+        return isNaN(ttl)
+            ? root.tr("ttlUnknown")
+            : root.fmt("ttlSeconds", { seconds: Math.round(ttl / 1000) })
     }
 
     // One consent card for every request: a plan lease shows the plan's
@@ -159,17 +313,17 @@ ShellRoot {
 
     function cardTitle() {
         const card = root.cardData()
-        return card && card.title ? String(card.title) : "Agent 请求操控桌面"
+        return card && card.title ? String(card.title) : root.tr("cardFallbackTitle")
     }
 
     function allowLabel() {
         const card = root.cardData()
-        return card && card.acceptLabel ? String(card.acceptLabel) : "允许操控"
+        return card && card.acceptLabel ? String(card.acceptLabel) : root.tr("allowFallback")
     }
 
     function denyLabel() {
         const card = root.cardData()
-        return card && card.denyLabel ? String(card.denyLabel) : "拒绝"
+        return card && card.denyLabel ? String(card.denyLabel) : root.tr("denyFallback")
     }
 
     // One-line plan preview: `plan · 5 steps · click, text, screenshot`.
@@ -181,9 +335,10 @@ ShellRoot {
         const operations = Array.isArray(plan.ops)
             ? plan.ops.filter(function(op) { return typeof op === "string" && op.length > 0 })
             : []
-        const label = steps === 1 ? " step" : " steps"
-        return "plan · " + steps + label
-            + (operations.length > 0 ? " · " + operations.join(", ") : "")
+        const preview = steps === 1
+            ? root.tr("planLineOne")
+            : root.fmt("planLineMany", { steps: steps })
+        return preview + (operations.length > 0 ? " · " + operations.join(", ") : "")
     }
 
     function hasProgress() {
@@ -216,44 +371,52 @@ ShellRoot {
         if (root.recovering()) {
             const step = Number(record.step) || 0
             const attempt = root.attemptCount(record)
-            if (total <= 0) return "正在恢复…"
-            return "第 " + step + "/" + total + " 步"
-                + (attempt > 0 ? "（第 " + attempt + " 次恢复）" : "")
+            if (total <= 0) return root.tr("recovering")
+            return attempt > 0
+                ? root.fmt("progressStepRecovery", { step: step, total: total, attempt: attempt })
+                : root.fmt("progressStep", { step: step, total: total })
         }
         if (record.status === "running") {
             const step = Number(record.step) || 0
-            if (total <= 0) return "正在准备执行…"
-            return "执行中 " + step + "/" + total + (record.op ? " · " + record.op : "")
+            if (total <= 0) return root.tr("progressPreparing")
+            return root.fmt("progressRunning", { step: step, total: total })
+                + (record.op ? " · " + record.op : "")
         }
         if (record.status === "completed") {
             const attempt = root.attemptCount(record)
-            return "执行完成" + (total > 0 ? " · " + total + " 步" : "")
-                + (attempt > 0 ? "（含 " + attempt + " 次恢复）" : "")
+            if (total > 0 && attempt > 0) {
+                return root.fmt("progressCompletedStepsRecovery", { total: total, attempt: attempt })
+            }
+            if (total > 0) return root.fmt("progressCompletedSteps", { total: total })
+            if (attempt > 0) return root.fmt("progressCompletedRecovery", { attempt: attempt })
+            return root.tr("progressCompleted")
         }
-        if (record.status === "faulted") return "执行失败" + (record.reason ? " · " + record.reason : "")
-        if (record.status === "revoked") return "控制已被收回"
+        if (record.status === "faulted") {
+            return root.tr("progressFaulted") + (record.reason ? " · " + record.reason : "")
+        }
+        if (record.status === "revoked") return root.tr("progressRevoked")
         return ""
     }
 
     function bannerTitle() {
         const current = root.phase()
-        if (root.recovering()) return "恢复中"
-        if (current === "granted") return "Agent 正在操控桌面"
-        if (root.pending === "allow") return "正在交接控制…"
-        if (current === "denied") return "已拒绝本次请求"
-        if (current === "expired") return "授权超时，未执行"
-        if (current === "revoked") return "控制已被收回"
-        if (root.hasProgress() && root.progress.status === "completed") return "执行完成"
-        if (root.hasProgress() && root.progress.status === "faulted") return "执行失败"
-        return "控制已交还"
+        if (root.recovering()) return root.tr("bannerRecovering")
+        if (current === "granted") return root.tr("bannerGranted")
+        if (root.pending === "allow") return root.tr("bannerHandingOver")
+        if (current === "denied") return root.tr("bannerDenied")
+        if (current === "expired") return root.tr("bannerExpired")
+        if (current === "revoked") return root.tr("bannerRevoked")
+        if (root.hasProgress() && root.progress.status === "completed") return root.tr("bannerCompleted")
+        if (root.hasProgress() && root.progress.status === "faulted") return root.tr("bannerFaulted")
+        return root.tr("bannerReturned")
     }
 
     function bannerSubtitle() {
         const current = root.phase()
         if (current === "granted") {
-            return "剩余 " + root.remainingText(root.lease.expiresAt) + " · SUPER + ALT + ESC 收回"
+            return root.fmt("bannerRemaining", { time: root.remainingText(root.lease.expiresAt) })
         }
-        if (root.pending === "allow") return "已提交授权请求，等待租约生效"
+        if (root.pending === "allow") return root.tr("bannerSubmitted")
         return ""
     }
 
@@ -303,7 +466,10 @@ ShellRoot {
         // A prompt is always asking about the next recovery, so 0/missing reads
         // as the first one instead of rendering a misleading "第 0/n 次".
         if (!isFinite(attempt) || attempt < 1) attempt = 1
-        return "第 " + Math.floor(attempt) + "/" + Math.floor(maxResumes) + " 次恢复"
+        return root.fmt("interferenceAttempt", {
+            attempt: Math.floor(attempt),
+            max: Math.floor(maxResumes)
+        })
     }
 
     // One short line per broken premise, "kind · detail". Only the first three
@@ -332,7 +498,7 @@ ShellRoot {
 
     function brokenExtraText() {
         const extra = root.brokenLines().length - 3
-        return extra > 0 ? "+" + extra + " 项" : ""
+        return extra > 0 ? root.fmt("interferenceExtra", { count: extra }) : ""
     }
 
     // One line explaining what answering "continue" buys, e.g.
@@ -343,21 +509,21 @@ ShellRoot {
         if (!current) return ""
         const budget = Number(current.budgetMs)
         const maxResumes = Number(current.maxResumes)
-        let line = "继续将恢复前提"
+        let line = root.tr("continueRestore")
         if (isFinite(budget) && budget > 0) {
-            line += "并追加 " + root.secondsText(budget) + " 执行窗口"
+            line += root.fmt("continueBudget", { time: root.secondsText(budget) })
         }
         if (isFinite(maxResumes) && maxResumes > 0) {
-            line += "（本次运行最多恢复 " + Math.floor(maxResumes) + " 次）"
+            line += root.fmt("continueRecoveries", { max: Math.floor(maxResumes) })
         }
-        return line === "继续将恢复前提" ? "" : line
+        return line === root.tr("continueRestore") ? "" : line
     }
 
     function secondsText(ms) {
         const seconds = Number(ms) / 1000
         if (!isFinite(seconds) || seconds <= 0) return ""
         const rounded = Math.round(seconds * 10) / 10
-        return rounded + "s"
+        return root.fmt("secondsShort", { seconds: rounded })
     }
 
     function interferenceStepLine() {
@@ -367,7 +533,10 @@ ShellRoot {
         const total = Number(current.total)
         const position = (isFinite(step) ? step : "?") + "/" + (isFinite(total) ? total : "?")
         const recovery = root.interferenceAttemptLine()
-        return "第 " + position + " 步 · " + (recovery !== "" ? recovery : (current.kind || "unknown"))
+        return root.fmt("interferenceStep", {
+            position: position,
+            status: recovery !== "" ? recovery : (current.kind || "unknown")
+        })
     }
 
     function interferenceCountdown() {
@@ -376,7 +545,9 @@ ShellRoot {
         const expires = Date.parse(current.expiresAt)
         if (isNaN(expires)) return ""
         // At zero the card hides by itself; the executor aborts at the same deadline.
-        return Math.max(0, Math.ceil((expires - root.nowMs) / 1000)) + " 秒后自动终止"
+        return root.fmt("interferenceCountdown", {
+            seconds: Math.max(0, Math.ceil((expires - root.nowMs) / 1000))
+        })
     }
 
     function resolveInterference(decision) {
@@ -389,13 +560,15 @@ ShellRoot {
         // command is logged and not retried — the executor's deadline is the
         // safety net, exactly like a prompt the host never answers.
         root.resolvedId = id
-        if (root.binPath === "") {
-            console.error("hyprscope: cannot record interference decision without HYPRSCOPE_BIN")
+        if (root.interferenceAnswerPath === "") {
+            console.error("hyprscope: cannot answer the interference prompt without an answer path")
             return
         }
-        interferer.command = [root.nodePath, root.binPath, "control", "__interference", decision,
-            "--id", id, "--source", "overlay", "--json"]
-        interferer.running = true
+        // Answer in place: the executor reads the file and continues, so the click
+        // never starts a second CLI process.
+        interferenceAnswerer.command = ["sh", "-c", "printf '%s' \"$1\" > \"$2\"",
+            "hyprscope-answer", decision, root.interferenceAnswerPath]
+        interferenceAnswerer.running = true
     }
 
     function cardVisible() {
@@ -418,7 +591,7 @@ ShellRoot {
     }
 
     // The banner's stop button must go through `panic` (released by the lease
-    // holder); `__control` only exists while the consent card is still open.
+    // holder); answering a card only writes an answer file while it is open.
     function releaseNow() {
         if (releaser.running) return
         root.pendingError = ""
@@ -427,18 +600,20 @@ ShellRoot {
     }
 
     function decide(action) {
-        if (control.running || root.pending !== "") return
-        if (root.binPath === "") {
-            root.pendingError = "内部错误：缺少 hyprscope 入口路径"
+        if (answerer.running || root.pending !== "") return
+        if (root.answerPath === "") {
+            root.pendingError = root.tr("errorMissingAnswerPath")
             return
         }
         // Optimistic: hide the card on the click itself, not when the requester
-        // notices the decision. The banner covers the gap.
+        // notices the answer. The banner covers the gap.
         root.pending = action
         root.pendingAt = Date.now()
         root.pendingError = ""
-        control.command = [root.nodePath, root.binPath, "control", "__control", action, "--source", "overlay", "--json"]
-        control.running = true
+        // The overlay writes the answer; the waiting tool records it and continues.
+        answerer.command = ["sh", "-c", "printf '%s' \"$1\" > \"$2\"",
+            "hyprscope-answer", action, root.answerPath]
+        answerer.running = true
     }
 
     Process {
@@ -466,7 +641,7 @@ ShellRoot {
             if (root.phase() === "consent" && root.pending === "allow"
                 && root.nowMs - root.pendingAt > 5000) {
                 root.pending = ""
-                root.pendingError = "授权请求没有响应，请重试"
+                root.pendingError = root.tr("errorAnswerTimeout")
             }
             if (!reader.running) reader.running = true
         }
@@ -481,25 +656,25 @@ ShellRoot {
     }
 
     Process {
-        id: control
+        id: answerer
         running: false
         onExited: function(exitCode, exitStatus) {
             if (exitCode !== 0 && root.pending !== "") {
                 root.pending = ""
-                root.pendingError = "授权命令失败（exit " + exitCode + "）"
+                root.pendingError = root.fmt("errorAnswerWrite", { code: exitCode })
             }
         }
     }
 
     Process {
-        id: interferer
+        id: interferenceAnswerer
         running: false
         onExited: function(exitCode, exitStatus) {
             // No retry: the prompt is already resolved locally and the executor's
             // own deadline decides what happens next. Log so overlay.log tells the
             // story instead of the button silently doing nothing.
             if (exitCode !== 0) {
-                console.error("hyprscope: interference decision command failed with exit " + exitCode)
+                console.error("hyprscope: interference answer write failed with exit " + exitCode)
             }
         }
     }
@@ -545,7 +720,7 @@ ShellRoot {
 
                 Text {
                     width: parent.width
-                    text: root.lease.reason || "(未说明原因)"
+                    text: root.lease.reason || root.tr("reasonFallback")
                     color: "#c7ccd6"
                     font.pixelSize: 14
                     wrapMode: Text.WordWrap
@@ -573,7 +748,7 @@ ShellRoot {
                 Text {
                     width: parent.width
                     visible: !root.isApproval()
-                    text: "同意后，agent 最多操控 " + root.ttlText() + "。期间可以随时按 SUPER + ALT + ESC 收回控制。"
+                    text: root.fmt("consentBody", { time: root.ttlText() })
                     color: "#8b93a3"
                     font.pixelSize: 13
                     wrapMode: Text.WordWrap
@@ -636,7 +811,7 @@ ShellRoot {
 
                 Text {
                     width: parent.width
-                    text: "还剩 " + root.remainingText(root.lease.consentDeadline) + " 自动拒绝"
+                    text: root.fmt("autoDenyIn", { time: root.remainingText(root.lease.consentDeadline) })
                     color: "#6f7684"
                     font.pixelSize: 12
                 }
@@ -750,7 +925,7 @@ ShellRoot {
                             }
                             Text {
                                 anchors.centerIn: parent
-                                text: "立即收回"
+                                text: root.tr("stopNow")
                                 color: "#ffffff"
                                 font.pixelSize: 13
                             }
@@ -850,7 +1025,7 @@ ShellRoot {
                 spacing: 14
 
                 Text {
-                    text: "检测到外部操作"
+                    text: root.tr("interferenceTitle")
                     color: "#f2f4f8"
                     font.pixelSize: 20
                     font.bold: true
@@ -868,7 +1043,7 @@ ShellRoot {
                     visible: root.brokenLines().length === 0
                     text: root.interference && root.interference.detail
                         ? root.interference.detail
-                        : "(未提供细节)"
+                        : root.tr("interferenceDetailFallback")
                     color: "#c7ccd6"
                     font.pixelSize: 14
                     wrapMode: Text.WordWrap
@@ -944,7 +1119,7 @@ ShellRoot {
                         border.color: "#343945"
                         Text {
                             anchors.centerIn: parent
-                            text: "终止操作"
+                            text: root.tr("interferenceAbort")
                             color: "#d6dae4"
                             font.pixelSize: 14
                         }
@@ -963,7 +1138,7 @@ ShellRoot {
                         color: continueArea.pressed ? "#3d6fe0" : "#4b7bec"
                         Text {
                             anchors.centerIn: parent
-                            text: "继续执行"
+                            text: root.tr("interferenceContinue")
                             color: "#ffffff"
                             font.pixelSize: 14
                             font.bold: true

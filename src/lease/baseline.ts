@@ -1,13 +1,13 @@
 /**
- * `hyprscope control baseline`: measure this machine, review the draft, accept it.
+ * `hyprscope control baseline`: measure this machine and ask the host to accept the result.
  *
- * Three separate consents and actions live here:
+ * Two commands live here:
  * - `--probe` asks the host to let the probe take the desktop briefly for
  *   measurement (that lease card belongs to the probe), then writes either a
  *   pending draft or, when the new effective set is a subset of the accepted
- *   one, narrows the accepted file in place;
- * - `--accept` is the human acceptance of the draft's evidence hash; it is the
- *   only way a baseline becomes readable by the engine;
+ *   one, narrows the accepted file in place. A widening result is followed by
+ *   the acceptance card in the same call: the host's click is the only way a
+ *   baseline becomes readable by the engine, and no CLI entry can answer it;
  * - `--show` reads the accepted file and any pending draft without writing.
  */
 import { createHash } from 'node:crypto'
@@ -24,6 +24,7 @@ import type {
 import type { Session } from '../types.ts'
 import type { DesktopTarget } from '../desktop/types.ts'
 import { ErrorCode, HyprscopeError } from '../errors.ts'
+import { tr, type RenderLanguage } from '../i18n.ts'
 import { requestLease } from './control.ts'
 import type { LeaseConfirmCard } from './state.ts'
 
@@ -45,6 +46,8 @@ export interface BaselineOptions {
   signature?: string | null
   /** Selector the baseline belongs to; only used for the command printed to the human. */
   target?: DesktopTarget
+  /** Language of the confirmation card and overlay; defaults to Chinese. */
+  lang?: RenderLanguage
 }
 
 /** Options for {@link probeBaseline}. */
@@ -97,8 +100,12 @@ export interface BaselineAcceptOptions extends BaselineOptions {
 export interface BaselineProbeReport {
   probeId: string
   mode: 'full' | 'read-only'
-  /** `narrowed` writes the accepted file in place; `pending` waits for a human. */
-  applied: 'narrowed' | 'pending'
+  /**
+   * `narrowed` writes the accepted file in place, `accepted` records the host's
+   * answer to the card this probe showed, and `pending` keeps the draft because
+   * the card was denied or expired.
+   */
+  applied: 'narrowed' | 'pending' | 'accepted'
   /** File that was written. */
   path: string
   state: BaselineState
@@ -109,11 +116,13 @@ export interface BaselineProbeReport {
   /** Effective-set difference against the accepted baseline. */
   diff: { acceptedState: BaselineState | null; added: CapabilityId[]; removed: CapabilityId[] }
   warnings: string[]
-  /** Command that accepts the draft. */
-  approveCommand: string
+  /** The human answer, when this probe showed the confirmation card. */
+  confirmation: { approved: boolean; phase: string; source: string } | null
+  /** The accepted baseline, when the host approved the card this probe showed. */
+  accept: BaselineAcceptReport | null
 }
 
-/** Result of `baseline --accept`. */
+/** Result recorded when the probe's confirmation card is approved. */
 export interface BaselineAcceptReport {
   accepted: true
   path: string
@@ -254,6 +263,7 @@ export async function probeBaseline(options: BaselineProbeOptions = {}): Promise
     env,
     consentMs: options.consentMs,
     readOnly: options.readOnly,
+    lang: options.lang,
     now,
     session: options.session,
     configHash: options.configHash,
@@ -289,9 +299,8 @@ export async function probeBaseline(options: BaselineProbeOptions = {}): Promise
     evidence: { file: outcome.evidenceFile, sha256: outcome.evidenceSha256 },
     diff,
     warnings: [...outcome.warnings],
-    approveCommand: options.target === undefined || options.target === 'user'
-      ? 'hyprscope control baseline --accept'
-      : `hyprscope control baseline --accept --desktop ${options.target}`,
+    confirmation: null,
+    accept: null,
   }
   if (upgraded.length > 0) {
     base.warnings.push(`evidence improved to measured for ${upgraded.join(', ')}; a fresh acceptance is required`)
@@ -325,9 +334,10 @@ export async function probeBaseline(options: BaselineProbeOptions = {}): Promise
  * Build the card that asks the host to accept one measured verdict.
  * @param draft Pending draft.
  * @param state Verdict the draft computes to.
+ * @param lang Render language.
  * @returns Card content for the overlay.
  */
-function confirmationCard(draft: BaselineDocument, state: BaselineState): LeaseConfirmCard {
+function confirmationCard(draft: BaselineDocument, state: BaselineState, lang: RenderLanguage): LeaseConfirmCard {
   let required = 0
   let requiredMeasured = 0
   let optionalMeasured = 0
@@ -345,16 +355,29 @@ function confirmationCard(draft: BaselineDocument, state: BaselineState): LeaseC
   }
   const sha = draft.evidence?.sha256 ?? null
   const lines = [
-    `状态：${state}`,
-    `必需能力：${requiredMeasured}/${required} 已实测`,
-    `可选能力：${optionalMeasured} 项已实测，${optionalOpen} 项未实测`,
+    tr(lang, `状态：${state}`, `Status: ${state}`),
+    tr(lang, `必需能力：${requiredMeasured}/${required} 已实测`,
+      `Required capabilities: ${requiredMeasured}/${required} measured`),
+    tr(lang, `可选能力：${optionalMeasured} 项已实测，${optionalOpen} 项未实测`,
+      `Optional capabilities: ${optionalMeasured} measured, ${optionalOpen} unmeasured`),
     sha === null
-      ? '证据：未记录'
-      : `证据：sha256 ${sha.slice(0, 12)}…（探测 ${draft.probe.id.slice(0, 8)} · ${draft.probe.mode} · ${draft.probe.durationMs}ms）`,
-    '接受后，agent 每次操控桌面仍需要单独的计划同意卡。',
+      ? tr(lang, '证据：未记录', 'Evidence: not recorded')
+      : tr(lang,
+        `证据：sha256 ${sha.slice(0, 12)}…（探测 ${draft.probe.id.slice(0, 8)} · ${draft.probe.mode} · ${draft.probe.durationMs}ms）`,
+        `Evidence: sha256 ${sha.slice(0, 12)}… (probe ${draft.probe.id.slice(0, 8)} · ${draft.probe.mode} · ${draft.probe.durationMs}ms)`),
+    tr(lang, '接受后，agent 每次操控桌面仍需要单独的计划同意卡。',
+      'Accepting this grants no desktop control: every run still asks for its own plan card.'),
   ]
-  if (state !== 'usable') lines.splice(1, 0, `注意：基线状态为 ${state}，接受后控制仍不可用。`)
-  return { title: 'hyprscope · 接受能力基线', lines, acceptLabel: '允许并接受', denyLabel: '拒绝' }
+  if (state !== 'usable') {
+    lines.splice(1, 0, tr(lang, `注意：基线状态为 ${state}，接受后控制仍不可用。`,
+      `Note: the baseline state is ${state}; control stays unavailable after accepting.`))
+  }
+  return {
+    title: tr(lang, 'hyprscope · 接受能力基线', 'hyprscope · Accept the capability baseline'),
+    lines,
+    acceptLabel: tr(lang, '允许并接受', 'Allow and accept'),
+    denyLabel: tr(lang, '拒绝', 'Deny'),
+  }
 }
 
 /**
@@ -373,12 +396,13 @@ async function requestAcceptConfirmation(
   const consent: 'card' | 'programmatic' = options.target === undefined || options.target === 'user'
     ? 'card'
     : 'programmatic'
-  const reason = 'accept the measured capability baseline of this machine'
+  const reason = tr(options.lang ?? 'zh', '接受本机实测的能力基线',
+    'accept the measured capability baseline of this machine')
   if (options.confirm !== undefined) return options.confirm({ reason, card, consent, env })
   // The acceptance is an approval-only consent: the same card, the same decision
   // file and the same terminal record as a lease, without a control handoff.
   const outcome = await requestLease({
-    reason, card, approvalOnly: true, consent, consentMs: options.consentMs, env,
+    reason, card, approvalOnly: true, consent, consentMs: options.consentMs, env, lang: options.lang,
   })
   return { approved: outcome.allowed, source: outcome.source, phase: outcome.phase }
 }
@@ -445,7 +469,8 @@ export async function acceptBaseline(options: BaselineAcceptOptions = {}): Promi
   }
   // Acceptance is the host's decision, never a caller's: the card shows this
   // draft's own counts and evidence before the file becomes readable.
-  const confirmation = await requestAcceptConfirmation(options, env, confirmationCard(draft, state))
+  const confirmation = await requestAcceptConfirmation(options, env,
+    confirmationCard(draft, state, options.lang ?? 'zh'))
   if (!confirmation.approved) {
     throw new HyprscopeError(ErrorCode.DENIED,
       confirmation.phase === 'expired'
@@ -570,12 +595,23 @@ export function renderBaselineProbe(report: BaselineProbeReport): string {
   if (report.applied === 'narrowed') {
     lines.push(`narrowed ${report.path} in place: every capability it now grants was already accepted`)
     lines.push('no fresh acceptance is needed; narrowing only makes the tool more conservative')
+  } else if (report.applied === 'accepted' && report.accept !== null) {
+    lines.push(`accepted ${report.accept.path} after the host answered this probe's confirmation card`)
+    lines.push(`state: ${report.accept.state} · approved ${report.accept.approvedAt} by ${report.accept.approvedBy} (${report.accept.source})`)
+    lines.push(`usable: ${report.accept.usable.join(', ') || 'none'}`)
+    if (report.accept.missingRequired.length > 0) {
+      lines.push(`missing required: ${report.accept.missingRequired.join(', ')} — control stays unavailable until they are measured`)
+    }
   } else {
-    lines.push(`wrote the draft ${report.path}`)
+    lines.push(`wrote the draft ${report.path}; the confirmation card is part of this command`)
     lines.push(report.state === 'incomplete'
       ? 'state: incomplete — control stays unavailable until a human accepts a baseline that measures every required capability'
       : `state: ${report.state} — control becomes available once a human accepts this baseline`)
-    lines.push(`approve with: ${report.approveCommand}`)
+    lines.push(report.confirmation === null
+      ? 'the host did not answer the card; rerun the probe to ask again'
+      : report.confirmation.phase === 'expired'
+        ? 'the confirmation card expired; the draft stays pending, so rerun the probe to ask again'
+        : 'the host did not approve the draft; rerun the probe to ask again')
   }
   for (const warning of report.warnings) lines.push(`note: ${warning}`)
   return lines.join('\n')
@@ -622,7 +658,7 @@ export function renderBaselineShow(report: BaselineShowReport): string {
   lines.push(`missing required: ${report.missingRequired.join(', ') || 'none'}`)
   if (report.pending !== null) {
     lines.push(`pending: ${report.pending.path} · probe ${report.pending.probeId ?? '?'} · state ${report.pending.state ?? 'unreadable'}`)
-    lines.push('  review the acceptance card with "hyprscope control baseline --probe" output, then "hyprscope control baseline --accept"')
+    lines.push('  re-run "hyprscope control baseline --probe" to show the acceptance card again; a denied or expired card leaves this draft pending')
   }
   if (report.diff !== null) {
     lines.push(`diff pending vs accepted: ${report.diff.acceptedState ?? 'none'} → ${report.diff.pendingState ?? 'unreadable'}`)

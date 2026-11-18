@@ -15,6 +15,7 @@
  */
 import { RESTORE_CAPABILITIES } from '../compat/catalog.ts'
 import type { CapabilityId } from '../compat/types.ts'
+import { tr, type RenderLanguage } from '../i18n.ts'
 import {
   PLAN_LIMITS, PREDICATE_SPECS,
   type AbsolutePoint, type AnchorPoint, type Plan, type PlanLineage, type PlanStep, type Predicate,
@@ -135,15 +136,16 @@ export function restorability(input: RestorabilityInput): Restorability {
 /**
  * Human-readable label for one restore template.
  * @param kind Restore template.
- * @returns Short Chinese label used in plan summaries.
+ * @param lang Render language; defaults to Chinese.
+ * @returns Short label used in plan summaries.
  */
-export function restoreLabel(kind: RestoreKind): string {
+export function restoreLabel(kind: RestoreKind, lang: RenderLanguage = 'zh'): string {
   switch (kind) {
-    case 'workspace': return '工作区'
-    case 'state': return '窗口状态'
-    case 'geometry': return '窗口几何'
-    case 'focus': return '焦点'
-    case 'pointer': return '指针'
+    case 'workspace': return tr(lang, '工作区', 'workspace')
+    case 'state': return tr(lang, '窗口状态', 'window state')
+    case 'geometry': return tr(lang, '窗口几何', 'window geometry')
+    case 'focus': return tr(lang, '焦点', 'focus')
+    case 'pointer': return tr(lang, '指针', 'pointer')
   }
 }
 
@@ -156,6 +158,8 @@ export interface SynthesizeOptions {
   snapshot: Snapshot
   cursor: { x: number; y: number } | null
   baselineGeometry: Map<string, Geometry>
+  /** Language of the plan summary; defaults to Chinese. */
+  lang?: RenderLanguage
 }
 
 /** Steps that would restore the broken premises. */
@@ -332,10 +336,13 @@ export function synthesizeRestoreSteps(options: SynthesizeOptions): SynthesizeOu
   if (steps.length > budget) {
     return { ok: false, kind: 'recovery.too-many-steps', reason: `recovery needs ${steps.length} steps, budget is ${budget}` }
   }
+  const lang: RenderLanguage = options.lang ?? 'zh'
   const labels = [...new Set(restored.map(kind => PREDICATE_SPECS[kind].restore))]
     .filter((kind): kind is RestoreKind => kind !== null)
-    .map(restoreLabel)
-  const summary = `恢复${labels.join('、')}后继续第 ${options.stepIndex + 1}/${options.plan.steps.length} 步`
+    .map(kind => restoreLabel(kind, lang))
+  const summary = tr(lang,
+    `恢复${labels.join('、')}后继续第 ${options.stepIndex + 1}/${options.plan.steps.length} 步`,
+    `restore ${labels.join(', ')} and continue at step ${options.stepIndex + 1}/${options.plan.steps.length}`)
   return { ok: true, steps, restored, summary }
 }
 

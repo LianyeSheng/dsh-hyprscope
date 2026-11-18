@@ -26,6 +26,22 @@ test('parseArgs accepts = for value options', () => {
   assert.equal(parsed.options.monitor, 'HDMI-A-1')
 })
 
+test('parseArgs reads the window capture selectors', () => {
+  const parsed = parseArgs(['screenshot', '--window-app=zen', '--output=shot.png'])
+  assert.equal(parsed.options.windowApp, 'zen')
+  assert.equal(parsed.options.output, 'shot.png')
+  assert.equal(parseArgs(['screenshot', '--window-id', '0x1234']).options.windowId, '0x1234')
+  assert.equal(parseArgs(['screenshot', '--window-title=term']).options.windowTitle, 'term')
+})
+
+test('usage lists the window capture options', async () => {
+  const stdout = sink()
+  assert.equal(await main(['--help'], { stdout, stderr: sink() }), 0)
+  assert.match(stdout.text, /--window-id/)
+  assert.match(stdout.text, /--window-app/)
+  assert.match(stdout.text, /--window-title/)
+})
+
 test('parseArgs rejects unknown options and bad values', () => {
   for (const argv of [['state', '--wat'], ['state', '--timeout', 'soon'], ['state', '--count', '0'],
     ['state', '--json=yes'], ['state', '--timeout']]) {

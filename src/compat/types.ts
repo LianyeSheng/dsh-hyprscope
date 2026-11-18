@@ -27,6 +27,7 @@ export type CapabilityId =
   | 'dispatch.window.fullscreen-state'
   | 'observe.window.modes'
   | 'capture.grim'
+  | 'capture.window'
   | 'observe.lock'
   | 'dispatch.window.move-to-workspace'
 

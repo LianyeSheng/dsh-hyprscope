@@ -25,10 +25,11 @@ import { statusDesktop } from '../desktop/lifecycle.ts'
 import { resolveTarget } from '../desktop/target.ts'
 import type { DesktopTarget, ResolvedTarget } from '../desktop/types.ts'
 import { ErrorCode, HyprscopeError } from '../errors.ts'
+import { tr, type RenderLanguage } from '../i18n.ts'
 import { grantLease, LEASE_RECOVERY_MARGIN_MS, releaseLease, renewLease, requestLease } from '../lease/control.ts'
 import {
-  clearInterference, clearInterferenceDecision, clearNotice, leasePaths, readInterferenceDecision,
-  writeInterference, writeNotice, writeProgress, type LeaseProgress,
+  clearInterference, clearInterferenceDecision, clearNotice, leasePaths, readAnswer, readInterferenceDecision,
+  removeFile, writeInterference, writeNotice, writeProgress, type LeaseProgress,
 } from '../lease/state.ts'
 import {
   executePlan, type ExecutionOutcome, type FaultRecord, type InterferenceRequest, type RunResult, type SuspendRecord,
@@ -54,6 +55,8 @@ export interface RunPlanOptions {
   desktop?: DesktopTarget
   /** Recovery attempts the consent card may authorize. */
   maxResumes?: number
+  /** Language of the consent card, overlay and recovery notices; defaults to Chinese. */
+  lang?: RenderLanguage
 }
 
 /** Everything the gate decided before a run may ask for control. */
@@ -270,6 +273,9 @@ async function promptInterference(
   try {
     for (;;) {
       await assertPlanGrant(grant, env)
+      // The overlay writes the raw answer; the decision stays in this run.
+      const answer = await readAnswer(paths.interferenceAnswerFile)
+      if (answer === 'continue' || answer === 'abort') return answer
       const decision = await readInterferenceDecision(paths)
       if (decision !== null && decision.id === id) return decision.decision
       if (Date.now() >= Date.parse(expiresAt)) return 'abort'
@@ -278,6 +284,7 @@ async function promptInterference(
   } finally {
     await clearInterference(paths).catch(() => {})
     await clearInterferenceDecision(paths).catch(() => {})
+    await removeFile(paths.interferenceAnswerFile).catch(() => {})
   }
 }
 
@@ -390,7 +397,7 @@ export async function runPlanFile(options: RunPlanOptions): Promise<RunReport> {
     planSummary: summary,
     // The card shows what the host is approving: the plan's description and its
     // steps, not just an op list. The compact summary still drives the banner.
-    card: describePlanCard(rootPlan),
+    card: describePlanCard(rootPlan, { lang: options.lang }),
     ttlMs: options.ttlMs ?? attemptTtlMs(rootPlan),
     maxResumes,
     totalBudgetMs: recoveryBudgetMs * (1 + maxResumes),
@@ -399,7 +406,7 @@ export async function runPlanFile(options: RunPlanOptions): Promise<RunReport> {
   // boundary: the lease is granted programmatically, still bound to this plan
   // and TTL. The user's desktop keeps the per-run card.
   const consents = target.target === 'user'
-    ? await requestLease({ ...request, consentMs: options.consentMs, env })
+    ? await requestLease({ ...request, consentMs: options.consentMs, env, lang: options.lang })
     : await grantLease({ ...request, env: runEnv, source: 'desktop' })
   if (!consents.allowed || consents.phase !== 'granted') {
     throw new HyprscopeError(ErrorCode.DENIED, `Consent was not granted (${consents.reason})`, {
@@ -497,6 +504,7 @@ export async function runPlanFile(options: RunPlanOptions): Promise<RunReport> {
         snapshot,
         cursor,
         baselineGeometry: new Map(Object.entries(suspended.baselineGeometry)),
+        lang: options.lang,
       })
       if (!synthesis.ok) {
         report = faultFromSuspension(suspended, synthesis.kind, synthesis.reason)
@@ -557,8 +565,10 @@ export async function runPlanFile(options: RunPlanOptions): Promise<RunReport> {
           restoreSteps: synthesis.steps.length, summary: synthesis.summary,
         },
       }).catch(() => {})
+      const lang: RenderLanguage = options.lang ?? 'zh'
       await publishNotice(runEnv, grant.leaseId, {
-        text: `第 ${attemptNumber + 1} 次恢复：${synthesis.summary}`,
+        text: tr(lang, `第 ${attemptNumber + 1} 次恢复：${synthesis.summary}`,
+          `Recovery ${attemptNumber + 1}: ${synthesis.summary}`),
         ttlMs: 4_000,
       }).catch(() => {})
     }

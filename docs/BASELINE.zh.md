@@ -2,7 +2,7 @@
 
 [English](/docs/BASELINE.md) | 中文
 
-> 状态：**已实现**。`src/compat/baseline.ts` 读取、校验并计算这个文件，`src/compat/probe.ts` 写草稿，`hyprscope control baseline --accept` 是唯一记录人工批准的路径：它向浮层要一张确认卡，宿主点击之后才写文件。设计背景和探针流程见 [COMPATIBILITY.md](/docs/COMPATIBILITY.zh.md)。
+> 状态：**已实现**。`src/compat/baseline.ts` 读取、校验并计算这个文件，`src/compat/probe.ts` 测量并写草稿，`hyprscope control baseline --probe` 是唯一记录人工批准的路径：测量结果比已验收基线更宽时，同一条命令向浮层要一张确认卡，宿主点击允许之后才写已验收的文件。设计背景和探针流程见 [COMPATIBILITY.md](/docs/COMPATIBILITY.zh.md)。
 
 `baseline.json` 是**一个桌面的能力结论**：用户自己的机器，或者一个受管实例。它记录探针测到了什么、证据在哪、谁在什么时候批准的。它只记录第一层（机器能力），不记录运行时状态，也不记录应用行为。
 
@@ -135,7 +135,7 @@ state = !requiredOk  ? 'incomplete'
 - `degraded`：控制可用，但少一条安全路径（例如兜底快捷键），回执和 `doctor` 必须写出来；
 - `usable`：全部达标。
 
-文件由 `--desktop` 选择：`hyprscope control baseline --probe / --show / --accept --desktop user|agent|external`，省略即 `user`。state 按文件分别计算，所以一个桌面的结论永远不会门控另一个。
+文件由 `--desktop` 选择：`hyprscope control baseline --probe / --show --desktop user|agent|external`，省略即 `user`。state 按文件分别计算，所以一个桌面的结论永远不会门控另一个。
 
 ## 6. 读取方规则（引擎侧）
 
@@ -165,15 +165,17 @@ effective(cap) =
 
 这些规则指向同一件事：**文件可以被读坏、写坏，最坏结果只能是能力变少。**任何一条规则都不允许数据把能力放大到代码没有声明的程度。
 
+代码在基线被验收之后新增的能力 id 不会出现在旧基线里，因此读出来是 `unknown`，不会被授予。所以像 `capture.window` 这样的新可选能力**不会被已有的已验收基线授予**：带窗口 `screenshot` 步骤的计划会以 `CAPABILITY` 被拒绝，直到 `hyprscope control baseline --probe` 测到它、并且宿主在同一命令为放宽后的基线弹出的确认卡上点了允许（新增能力 id 属于放宽，见 §7）。
+
 ## 7. 批准与收窄
 
-1. `hyprscope control baseline --probe [--desktop user|agent|external]` 先用只读阶段已经测到的事实（活动工作区的名字、布局原点、原本的活动窗口）构建测量计划，再取得它的租约（用户桌面弹卡，卡片以探针专用标题展示这份计划的预览；受管桌面走程序化租约，见下文），然后打开测试窗口，向它发一次 `SIGUSR1` 解除固定尺寸提示，并通过执行器的内部测量模式执行测量计划。提交不了或验证不了的步骤会被记录下来，运行继续；只有租约丢失、计划的时间预算或外部对桌面的改动会让它停下。之后探针写 `baseline.pending.json`（`approval: null`）和证据目录，并把测到什么、缺什么、证据在哪打印出来。这一步不会让任何能力生效：待批准草稿按"没有基线"处理；
-2. `hyprscope control baseline --accept [--desktop user|agent|external]` 请宿主确认草稿。用户桌面上，浮层会弹出一张确认卡，写着结论（`state`）、必需/可选能力的计数和证据哈希；只有宿主点击之后，pending 才提升为正式文件并写入 `approval` 和 `revisions`。拒绝或超时什么都不写，草稿保留。命令会重读草稿指名的证据文件，哈希对不上就拒绝，因此批准绑定的是人实际复核过的那串字节（证据文件被清理只是警告，不是失败）。探针的租约卡和验收确认是两次不同的同意（同一种卡片机制、两次独立的人工批准），不能合并；
+1. `hyprscope control baseline --probe [--lang zh|en] [--desktop user|agent|external]` 先用只读阶段已经测到的事实（活动工作区的名字、布局原点、原本的活动窗口）构建测量计划，再取得它的租约（用户桌面弹卡，卡片展示这份计划的预览；受管桌面走程序化租约，见下文），然后打开测试窗口，向它发一次 `SIGUSR1` 解除固定尺寸提示，并通过执行器的内部测量模式执行测量计划。提交不了或验证不了的步骤会被记录下来，运行继续；只有租约丢失、计划的时间预算或外部对桌面的改动会让它停下。之后探针写证据目录，并把测量结果和已验收基线作比较。结果只收窄时，直接改已验收的文件（第 3 条）；结果更宽时，留下待批准草稿 `baseline.pending.json`（`approval: null`），并且同一条命令会向宿主弹出确认卡，写着结论（`state`）、必需/可选能力的计数和证据哈希。这一步不会让任何能力生效：待批准草稿按"没有基线"处理；
+2. 探针在同一个进程里等待那张确认卡。允许时，它重读草稿指名的证据文件——哈希对不上就拒绝，因此批准绑定的是人实际复核过的那串字节（证据文件被清理只是警告）——把草稿提升为已验收文件，写入 `approval` 和一条 `revisions[kind: "accept"]`，删除待批准草稿，并打印已验收的基线。拒绝或超时什么都不写，草稿保留，报告说明卡片未被批准。没有单独的验收入口，待批准草稿也不能事后再验收：重新运行 `baseline --probe` 再测一次、再问一次。探针的租约卡（允许这次测量）和这张验收卡是同一套卡片机制上的两次不同同意；两张卡都按 `baseline --probe` 的 `--lang <zh|en>` 选择的语言渲染（默认 `zh`，或 `HYPRSCOPE_LANG` 环境变量；未知值按用法错误处理），CLI 的 stdout 仍是英文；
 3. 之后重新探测**只会收窄**：新的有效集是旧的子集、且没有任何有效能力的证据变强时，直接改正式文件（`state` 可能降到 `degraded`/`incomplete`），保留已有的 `approval`，追加一条 `revisions[kind: "narrow"]`，不需要重新批准。旧的 `approval.evidenceSha256` 仍然指向人实际复核过的那份证据，而 `evidence` 和 revision 指向新的测量；
-4. 任何放宽——`unknown` 变 `supported`、已经有效的能力的 `advertised` 变 `measured`、新增 `required` 项、新增能力 id——都必须重新走一次人工验收。探针会把证据从 `advertised` 提升到 `measured` 的有效能力当作放宽，因此后来才编译测试窗口的机器要重新验收，而不是悄悄升级证据；
+4. 任何放宽——`unknown` 变 `supported`、已经有效的能力的 `advertised` 变 `measured`、新增 `required` 项、新增能力 id——都是探针不能自行应用的放宽：它用第 2 条的卡片请人验收，只有宿主允许之后才写已验收文件。探针会把证据从 `advertised` 提升到 `measured` 的有效能力当作放宽，因此后来才编译测试窗口的机器要重新询问，而不是悄悄升级证据；
 5. 收窄不需要重新批准，是因为它只会让工具更保守；放宽意味着"允许我做上一次不被允许的事"，必须重新经过人。
 
-在 `agent` 或 `external` 桌面里，探针用的是程序化租约：人在 `desktop start`/`desktop attach` 时已经同意过一次，所以不再弹卡，验收也以程序化方式记在那次同意之下。用户桌面保留探针的租约卡，验收则用一张单独的确认卡。验收始终是另一次人工动作，`--accept` 要用同一个 `--desktop`。
+在 `agent` 或 `external` 桌面里，探针用的是程序化租约：人在 `desktop start`/`desktop attach` 时已经同意过一次，所以不再弹卡，验收也以程序化方式记在那次同意之下。用户桌面上，探针先拿它的租约卡，测量完成后再展示验收卡。验收始终是一次人工动作；拒绝或超时的卡片会让草稿保持待批准，只有再跑一次 `baseline --probe` 才能重新询问。
 
 ## 8. 与计划、租约的关系
 

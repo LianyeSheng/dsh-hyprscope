@@ -1,14 +1,16 @@
 /** Plan binding and transient notice plumbing for the consent lease. */
 import assert from 'node:assert/strict'
+import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { leaseStatus, releaseLease, requestLease, submitDecision } from '../src/lease/control.ts'
 import { main, parseLeaseArgs } from '../src/lease/cli.ts'
 import type { OverlayFactory } from '../src/lease/overlay.ts'
 import {
-  INTERFERENCE_DECISION_FILE, INTERFERENCE_FILE, NOTICE_FILE, clearInterference, clearInterferenceDecision,
-  clearNotice, leasePaths, newLeaseState, readInterference, readInterferenceDecision, readNotice, readState,
-  writeInterference, writeInterferenceDecision, writeNotice,
+  CONSENT_ANSWER_FILE, INTERFERENCE_ANSWER_FILE, INTERFERENCE_DECISION_FILE, INTERFERENCE_FILE, NOTICE_FILE,
+  clearInterference, clearInterferenceDecision, clearNotice, leasePaths, newLeaseState, readAnswer,
+  readInterference, readInterferenceDecision, readNotice, readState, writeInterference, writeInterferenceDecision,
+  writeNotice,
   type InterferenceDecision, type LeaseInterference, type LeaseNotice, type LeasePaths, type LeasePlanSummary,
   type LeaseState,
 } from '../src/lease/state.ts'
@@ -115,23 +117,6 @@ function interferenceFor(
     expiresAt: new Date(at.getTime() + 12_000).toISOString(),
     ...overrides,
   }
-}
-
-/**
- * Point `process.env.XDG_STATE_HOME` at a disposable directory for a CLI test.
- * @param t Test context.
- * @returns Paths inside that directory, restored/removed afterwards.
- */
-function useStateHome(t: import('node:test').TestContext): LeasePaths {
-  const stateHome = tempDir('hyprlease-interference-')
-  const previous = process.env.XDG_STATE_HOME
-  process.env.XDG_STATE_HOME = stateHome
-  t.after(() => {
-    if (previous === undefined) delete process.env.XDG_STATE_HOME
-    else process.env.XDG_STATE_HOME = previous
-    removeDir(stateHome)
-  })
-  return leasePaths()
 }
 
 test('newLeaseState defaults the plan binding to false', () => {
@@ -290,6 +275,10 @@ test('leasePaths exposes the interference prompt and answer files', () => {
   assert.equal(INTERFERENCE_DECISION_FILE, 'interference-decision.json')
   assert.equal(paths.interferenceFile, join('/tmp/state/hyprlease', INTERFERENCE_FILE))
   assert.equal(paths.interferenceDecisionFile, join('/tmp/state/hyprlease', INTERFERENCE_DECISION_FILE))
+  assert.equal(CONSENT_ANSWER_FILE, 'answer')
+  assert.equal(paths.answerFile, join('/tmp/state/hyprlease', CONSENT_ANSWER_FILE))
+  assert.equal(INTERFERENCE_ANSWER_FILE, 'interference-answer')
+  assert.equal(paths.interferenceAnswerFile, join('/tmp/state/hyprlease', INTERFERENCE_ANSWER_FILE))
 })
 
 test('interference prompt and answer round-trip through the state directory', async (t) => {
@@ -372,75 +361,36 @@ test('finalize clears the interference prompt and answer', async (t) => {
   }
 })
 
-test('parseLeaseArgs reads __interference options', () => {
-  const parsed = parseLeaseArgs(['__interference', 'continue', '--id', 'prompt-1', '--source', 'overlay', '--json'])
-  assert.equal(parsed.command, '__interference')
-  assert.deepEqual(parsed.args, ['continue'])
-  assert.equal(parsed.options.id, 'prompt-1')
-  assert.equal(parsed.options.source, 'overlay')
-  assert.equal(parsed.options.json, true)
+test('the overlay answer file becomes the consent decision', async (t) => {
+  const env = leaseEnv(t)
+  const paths = leasePaths(env)
+  const pending = requestLease({
+    reason: 'answer without a CLI process', ttlMs: 5_000, consentMs: 3_000, env, spawnOverlay: fakeOverlay,
+  })
+  try {
+    await waitForPhase(paths, 'consent')
+    // The overlay writes the raw text; the requester records the decision and
+    // continues, so answering a card never starts a CLI process.
+    await writeFile(paths.answerFile, 'allow\n', 'utf8')
+    const outcome = await pending
+    assert.equal(outcome.allowed, true)
+    assert.equal(outcome.source, 'overlay')
+    await waitUntil(async () => (await readAnswer(paths.answerFile)) === null, 'the answer file is consumed')
+  } finally {
+    await releaseLease({ action: 'done', env, waitMs: 1_000 })
+  }
 })
 
-test('__interference records the answer and prints {ok, id, decision}', async (t) => {
-  const paths = useStateHome(t)
-  const prompt = interferenceFor('lease-cli', 'prompt-1')
-  await writeInterference(paths, prompt)
-  const stdout = sink()
+test('the CLI no longer exposes internal card-answer commands', async () => {
+  for (const command of ['__control', '__interference']) {
+    const stderr = sink()
+    assert.equal(await main([command, 'allow'], { stdout: sink(), stderr }), 2)
+    assert.match(stderr.text, /USAGE/)
+  }
+})
+
+test('the CLI no longer exposes baseline --accept', async () => {
   const stderr = sink()
-  const code = await main(['__interference', 'continue', '--id', 'prompt-1', '--source', 'overlay', '--json'],
-    { stdout, stderr })
-  assert.equal(code, 0)
-  assert.deepEqual(JSON.parse(stdout.text), { ok: true, id: 'prompt-1', decision: 'continue' })
-  const decision = await readInterferenceDecision(paths)
-  assert.equal(decision?.id, 'prompt-1')
-  assert.equal(decision?.decision, 'continue')
-  assert.equal(decision?.source, 'overlay')
-  assert.equal(typeof decision?.at, 'string')
-})
-
-test('__interference defaults the answer source to cli', async (t) => {
-  const paths = useStateHome(t)
-  await writeInterference(paths, interferenceFor('lease-cli', 'prompt-2'))
-  const code = await main(['__interference', 'abort', '--id', 'prompt-2', '--json'], { stdout: sink(), stderr: sink() })
-  assert.equal(code, 0)
-  const decision = await readInterferenceDecision(paths)
-  assert.equal(decision?.decision, 'abort')
-  assert.equal(decision?.source, 'cli')
-})
-
-test('__interference fails without a prompt, on a stale id, and after expiry', async (t) => {
-  const paths = useStateHome(t)
-
-  const missing = sink()
-  assert.equal(await main(['__interference', 'continue', '--id', 'prompt-1', '--json'],
-    { stdout: sink(), stderr: missing }), 1)
-  assert.equal((JSON.parse(missing.text) as { error: { code: string } }).error.code, 'NO_LEASE')
-
-  await writeInterference(paths, interferenceFor('lease-cli', 'prompt-1'))
-  const stale = sink()
-  assert.equal(await main(['__interference', 'continue', '--id', 'prompt-9', '--json'],
-    { stdout: sink(), stderr: stale }), 1)
-  assert.equal((JSON.parse(stale.text) as { error: { code: string } }).error.code, 'LEASE_MISMATCH')
-  assert.equal(await readInterferenceDecision(paths), null)
-
-  await writeInterference(paths, interferenceFor('lease-cli', 'prompt-1', {
-    expiresAt: new Date(Date.now() - 1_000).toISOString(),
-  }))
-  const expired = sink()
-  assert.equal(await main(['__interference', 'abort', '--id', 'prompt-1', '--json'],
-    { stdout: sink(), stderr: expired }), 1)
-  assert.equal((JSON.parse(expired.text) as { error: { code: string } }).error.code, 'TIMEOUT')
-  assert.equal(await readInterferenceDecision(paths), null)
-})
-
-test('__interference rejects malformed arguments with USAGE', async (t) => {
-  useStateHome(t)
-  const badAction = sink()
-  assert.equal(await main(['__interference', 'maybe', '--id', 'prompt-1'], { stdout: sink(), stderr: badAction }), 2)
-  assert.match(badAction.text, /USAGE/)
-  const missingId = sink()
-  assert.equal(await main(['__interference', 'continue'], { stdout: sink(), stderr: missingId }), 2)
-  assert.match(missingId.text, /USAGE/)
-  const unknownOption = sink()
-  assert.equal(await main(['__interference', 'continue', '--bogus'], { stdout: sink(), stderr: unknownOption }), 2)
+  assert.equal(await main(['baseline', '--accept'], { stdout: sink(), stderr }), 2)
+  assert.match(stderr.text, /USAGE/)
 })

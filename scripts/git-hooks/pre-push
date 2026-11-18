@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# hyprscope pre-push hook.
+# Pushing publishes work and needs explicit human approval. The hook refuses
+# every push unless HYPRSCOPE_ALLOW_PUSH=1 is set on that one command, and the
+# agent must only set it after the human approved the push.
+set -uo pipefail
+
+remote="${1:-origin}"
+url="${2:-}"
+
+if [ "${HYPRSCOPE_ALLOW_PUSH:-0}" = "1" ]; then
+  printf 'pre-push: HYPRSCOPE_ALLOW_PUSH=1, allowing push to %s (%s)\n' "$remote" "$url"
+  exit 0
+fi
+
+cat >&2 <<'EOF'
+pre-push: push blocked: publishing needs explicit human approval.
+
+Ask the human first. Once they approve, push with the approval in that one command:
+  HYPRSCOPE_ALLOW_PUSH=1 git push <remote> <ref>
+
+Never set HYPRSCOPE_ALLOW_PUSH yourself, and never use --no-verify to skip this hook.
+EOF
+exit 1

@@ -98,17 +98,27 @@ export const INTERFERENCE_FILE = 'interference.json'
 /** File name of the human's answer to the interference prompt. */
 export const INTERFERENCE_DECISION_FILE = 'interference-decision.json'
 
+/** File name of the overlay's raw consent answer (`allow` or `deny`). */
+export const CONSENT_ANSWER_FILE = 'answer'
+
+/** File name of the overlay's raw interference answer (`continue` or `abort`). */
+export const INTERFERENCE_ANSWER_FILE = 'interference-answer'
+
 /** Absolute paths owned by one runtime directory. */
 export interface LeasePaths {
   dir: string
   stateFile: string
   decisionFile: string
+  /** Raw consent answer the overlay writes; the requester turns it into a decision. */
+  answerFile: string
   controlFile: string
   heartbeatFile: string
   noticeFile: string
   progressFile: string
   interferenceFile: string
   interferenceDecisionFile: string
+  /** Raw interference answer the overlay writes; the run turns it into a decision. */
+  interferenceAnswerFile: string
   lockFile: string
   overlayLog: string
 }
@@ -251,12 +261,14 @@ export function leasePaths(env: NodeJS.ProcessEnv = process.env): LeasePaths {
     dir,
     stateFile: join(dir, 'state.json'),
     decisionFile: join(dir, 'decision.json'),
+    answerFile: join(dir, CONSENT_ANSWER_FILE),
     controlFile: join(dir, 'control.json'),
     heartbeatFile: join(dir, 'heartbeat.json'),
     noticeFile: join(dir, NOTICE_FILE),
     progressFile: join(dir, PROGRESS_FILE),
     interferenceFile: join(dir, INTERFERENCE_FILE),
     interferenceDecisionFile: join(dir, INTERFERENCE_DECISION_FILE),
+    interferenceAnswerFile: join(dir, INTERFERENCE_ANSWER_FILE),
     lockFile: join(dir, 'lease.lock'),
     overlayLog: join(dir, 'overlay.log'),
   }
@@ -436,6 +448,23 @@ export function releaseLock(paths: LeasePaths): Promise<void> {
  */
 export function readDecision(paths: LeasePaths): Promise<DecisionRecord | null> {
   return readJson<DecisionRecord>(paths.decisionFile)
+}
+
+/**
+ * Read one raw answer the overlay wrote for a card.
+ *
+ * The overlay writes the answer bytes only; the waiting tool records the decision
+ * itself, so a click never spawns a CLI process.
+ * @param file Absolute answer path.
+ * @returns Trimmed answer text, or null when the file is absent or empty.
+ */
+export async function readAnswer(file: string): Promise<string | null> {
+  try {
+    const text = (await readFile(file, 'utf8')).trim()
+    return text === '' ? null : text
+  } catch {
+    return null
+  }
 }
 
 /**

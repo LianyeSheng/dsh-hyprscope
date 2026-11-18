@@ -62,7 +62,7 @@ const STEP_FIELDS: Readonly<Record<StepOp, readonly string[]>> = {
   resizeWindow: ['op', 'target', 'width', 'height', 'requires', 'expect'],
   floatWindow: ['op', 'target', 'floating', 'pinned', 'requires', 'expect'],
   fullscreenWindow: ['op', 'target', 'internal', 'client', 'requires', 'expect'],
-  screenshot: ['op', 'label', 'region', 'requires', 'expect'],
+  screenshot: ['op', 'label', 'region', 'window', 'requires', 'expect'],
   pause: ['op', 'ms', 'requires', 'expect'],
   assert: ['op', 'requires', 'expect'],
   waitEvent: ['op', 'kind', 'timeoutMs', 'requires', 'expect'],
@@ -634,6 +634,11 @@ class Validator {
         if (label !== null) step.label = label
         const region = this.anchorRect(record.region, `${path}.region`)
         if (region !== null) step.region = region
+        const window = this.windowTarget(record.window, `${path}.window`)
+        if (window !== null) step.window = window
+        if (region !== null && window !== null) {
+          this.fail(`${path}.window`, 'a screenshot captures either a region or a window, not both')
+        }
         break
       }
       case 'pause': {

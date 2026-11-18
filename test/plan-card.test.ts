@@ -69,6 +69,13 @@ test('each step keeps its own meaning: focus, click, text, chord, capture', () =
   ])
 })
 
+test('a window screenshot names the captured window, not a region', () => {
+  const byApp = describePlanCard(planOf([{ op: 'screenshot', label: 'zen', window: { app: 'zen' } }]))
+  assert.equal(byApp.lines[2], '1. screenshot · 截图窗口「zen」')
+  const byTitle = describePlanCard(planOf([{ op: 'screenshot', window: { title: 'demo' } }]))
+  assert.equal(byTitle.lines[2], '1. screenshot · 截图窗口「demo」')
+})
+
 test('window targets, workspace, and the budget line are readable', () => {
   const card = describePlanCard(planOf([
     { op: 'focusWindow', target: { app: 'foot', title: 'zsh - demo' }, requires: [{ kind: 'window.exists', target: { app: 'foot' } }] },
@@ -134,4 +141,23 @@ test('a long text and summary are clipped, not dropped', () => {
 test('describeStep names an anchored pointer without absolute coordinates', () => {
   const plan = planOf([{ op: 'movePointer', at: { window: { title: 'demo' }, point: [0.25, 0.75] } }])
   assert.equal(describeStep(plan.steps[0]!, 0), '1. movePointer · 移动指针到 标题含「demo」的窗口 内 (0.25, 0.75)')
+})
+test('the card renders English when the caller asks for it', () => {
+  const card = describePlanCard(planOf([{ op: 'movePointer', at: { x: 100, y: 200 } }], { summary: 'open the menu' }), {
+    lang: 'en',
+  })
+  assert.equal(card.title, 'Agent requests to run a plan')
+  assert.equal(card.acceptLabel, 'Allow control')
+  assert.equal(card.denyLabel, 'Deny')
+  assert.deepEqual(card.lines, [
+    'Plan act: open the menu',
+    '1 step · budget 8 s',
+    '1. movePointer · move the pointer to (100, 200)',
+  ])
+})
+
+test('an English step line reads naturally for anchored targets', () => {
+  const plan = planOf([{ op: 'movePointer', at: { window: { title: 'demo' }, point: [0.25, 0.75] } }])
+  assert.equal(describeStep(plan.steps[0]!, 0, 'en'),
+    '1. movePointer · move the pointer inside the window titled "demo" at (0.25, 0.75)')
 })

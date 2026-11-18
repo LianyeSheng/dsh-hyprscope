@@ -6,8 +6,8 @@
 # After editing either side, re-record the pair:
 #   python3 .agents/se/scripts/docs/verify_translation_pairing.py --write <pair>
 /the-capability-baseline-file-baseline-json:
-  en: 46202da5943e55df
-  zh: b939d63242db81bb
+  en: ac734ceb7279b002
+  zh: 203fdc1224641d03
 /the-capability-baseline-file-baseline-json/1-location-and-ownership:
   en: 79475cdba396769c
   zh: e1ec580821d1191c
@@ -21,14 +21,14 @@
   en: bd102523bb51dc8d
   zh: 5731bee3a230e359
 /the-capability-baseline-file-baseline-json/5-how-state-is-computed:
-  en: ac6eda8691e99403
-  zh: a4376c453a818ab3
+  en: 165133d50e7420ca
+  zh: c2235cc3592895aa
 /the-capability-baseline-file-baseline-json/6-reader-rules-engine-side:
-  en: 0cc3d90864dab545
-  zh: 2941bc6a95057a32
+  en: 606df2cff92e0083
+  zh: 5f26548d92987fbb
 /the-capability-baseline-file-baseline-json/7-approval-and-narrowing:
-  en: 99e2a46a06d8a596
-  zh: ba243934cd54f60c
+  en: 4eb2a7e7faca7874
+  zh: a6b3ffe778f6b295
 /the-capability-baseline-file-baseline-json/8-relationship-to-plans-and-leases:
   en: 5ff8b62a17fdfa03
   zh: 8dfd1deef5b38ec0

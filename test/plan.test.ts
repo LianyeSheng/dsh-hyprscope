@@ -86,6 +86,8 @@ class FakeWorld implements World {
   injected: InjectCommand[][] = []
   dispatched: DispatchRequest[] = []
   captures: CaptureRequest[] = []
+  windowCaptures: { output: string; identifier: string }[] = []
+  windowCaptureError: HyprscopeError | null = null
   hashes: string[] = []
   closed = false
   onInject: ((commands: InjectCommand[]) => void) | null = null
@@ -128,7 +130,31 @@ class FakeWorld implements World {
       height: request.region?.height ?? 1440,
       sha256,
       capturedAt: new Date().toISOString(),
-      source: { monitor: null, region: request.region ?? null, scope: request.region === undefined ? 'layout' : 'region' },
+      source: {
+        monitor: null,
+        region: request.region ?? null,
+        scope: request.region === undefined ? 'layout' : 'region',
+        window: null,
+      },
+    }
+  }
+
+  async captureWindow(request: { output: string; identifier: string }): Promise<CaptureResult> {
+    this.windowCaptures.push(request)
+    if (this.windowCaptureError !== null) throw this.windowCaptureError
+    return {
+      path: request.output,
+      bytes: 64,
+      width: 320,
+      height: 200,
+      sha256: `window-${this.windowCaptures.length}`,
+      capturedAt: new Date().toISOString(),
+      source: {
+        monitor: null,
+        region: null,
+        scope: 'window',
+        window: { identifier: request.identifier, appId: 'Alacritty', title: 'terminal' },
+      },
     }
   }
 
@@ -267,6 +293,17 @@ test('validatePlan rejects unsafe or underspecified steps', () => {
     { document: { version: 1, reason: 'x', steps: [{ op: 'assert', requires: [{ kind: 'region.changed', target: { id: '0x55a1' }, rect: [0, 0, 1, 1] }] }] }, path: '$.steps[0].requires[0]' },
     { document: { version: 1, reason: 'x', steps: [{ op: 'assert', requires: [{ kind: 'window.state', target: { id: '0x55a1' }, floating: true, extra: 1 }] }] }, path: '$.steps[0].requires[0].extra' },
     { document: { version: 1, reason: 'x', steps: [{ op: 'movePointer', at: { window: { id: '0x55a1' }, point: [2, 0] }, requires: [{ kind: 'window.exists', target: { id: '0x55a1' } }] }] }, path: '$.steps[0].at.point' },
+    {
+      document: {
+        version: 1, reason: 'x',
+        steps: [{
+          op: 'screenshot',
+          region: { window: { id: '0x55a1' }, rect: [0, 0, 1, 1] },
+          window: { id: '0x55a1' },
+        }],
+      },
+      path: '$.steps[0].window',
+    },
   ]
   for (const entry of cases) {
     assert.throws(() => validatePlan(entry.document), (error: unknown) => {
@@ -748,6 +785,58 @@ test('screenshot step captures the anchored region', async (t) => {
   const result = resultOf(outcome)
   assert.equal(result.status, 'completed')
   assert.deepEqual(world.captures[0]?.region, { x: 100, y: 100, width: 400, height: 150 })
+})
+
+test('a screenshot step accepts one window target and rejects combining it with a region', () => {
+  const plan = planOf([{ op: 'screenshot', label: 'zen', window: { app: 'zen' } }])
+  assert.deepEqual(plan.steps[0]?.window, { app: 'zen' })
+  assert.equal(plan.steps[0]?.region, undefined)
+  assert.throws(() => planOf([{
+    op: 'screenshot',
+    region: { window: { id: '0x55a1' }, rect: [0, 0, 1, 1] },
+    window: { id: '0x55a1' },
+  }]), (error: unknown) => {
+    assert.ok(error instanceof PlanValidationError)
+    assert.ok(error.issues.some(issue => issue.path === '$.steps[0].window'
+      && /either a region or a window, not both/.test(issue.message)))
+    return true
+  })
+})
+
+test('a window screenshot captures the foreign toplevel and records it like any capture', async (t) => {
+  const plan = planOf([{ op: 'screenshot', label: 'zen', window: { id: '0x55a1' } }])
+  const world = new FakeWorld({ clients: [client({ stableId: '0xabc123' })] })
+  const { outcome } = await runPlan(t, plan, world)
+  const result = resultOf(outcome)
+  assert.equal(result.status, 'completed')
+  assert.equal(world.captures.length, 0)
+  assert.deepEqual(world.windowCaptures, [{ output: result.screenshots[0]?.path, identifier: '0xabc123' }])
+  assert.equal(result.screenshots[0]?.label, 'zen')
+  assert.equal(result.steps[0]?.screenshot, result.screenshots[0]?.path)
+  assert.match(result.steps[0]?.effect ?? '', /^captured zen \(320x200\)$/)
+})
+
+test('a window screenshot faults when the compositor reports no foreign-toplevel identifier', async (t) => {
+  const plan = planOf([{ op: 'screenshot', window: { id: '0x55a1' } }])
+  const world = new FakeWorld()
+  const { outcome } = await runPlan(t, plan, world)
+  const result = resultOf(outcome)
+  assert.equal(result.status, 'faulted')
+  assert.equal(result.fault?.broken.kind, 'target.missing')
+  assert.match(result.fault?.broken.detail ?? '', /foreign-toplevel identifier/)
+  assert.equal(world.windowCaptures.length, 0)
+})
+
+test('a failed window capture faults with the helper message in an ordinary run', async (t) => {
+  const plan = planOf([{ op: 'screenshot', window: { id: '0x55a1' } }])
+  const world = new FakeWorld({ clients: [client({ stableId: '0xabc123' })] })
+  world.windowCaptureError = new HyprscopeError(
+    ErrorCode.SCREENSHOT_FAILED, 'the compositor could not capture this window')
+  const { outcome } = await runPlan(t, plan, world)
+  const result = resultOf(outcome)
+  assert.equal(result.status, 'faulted')
+  assert.equal(result.fault?.broken.kind, 'postcondition')
+  assert.match(result.fault?.broken.detail ?? '', /could not capture this window/)
 })
 
 test('the shipped example plan validates and canonicalizes stably', () => {

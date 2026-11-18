@@ -8,6 +8,7 @@
  * (that is, a symbolic selector) or the address it read before it started.
  * No step may name a user window.
  */
+import { tr, type RenderLanguage } from '../i18n.ts'
 import type { Plan, PlanStep, Predicate, WindowTarget, AnchorPoint } from '../plan/model.ts'
 import type { CapabilityId } from './types.ts'
 
@@ -63,6 +64,8 @@ export interface ProbePlanInput {
   origin: { x: number; y: number } | null
   /** Active window address before the probe started, when one existed. */
   restoreWindow: string | null
+  /** Language of the measurement plan's human description; defaults to Chinese. */
+  lang?: RenderLanguage
 }
 
 /** A post-run observation that proves an effect landed. */
@@ -197,6 +200,16 @@ export function buildProbePlan(input: ProbePlanInput): ProbePlan {
     })
   }
 
+  // Capture the scratch window through the foreign-toplevel path, not through
+  // the composited output: this is the one round trip that measures whether a
+  // window capture works on this machine. A short pause lets the resize and
+  // move above settle into the window's surface before the capture session is
+  // opened, so the measurement does not race a size change.
+  steps.push({ op: 'pause', ms: 250 })
+  const windowCaptureIndex = steps.length
+  steps.push({ op: 'screenshot', label: 'window', window: PROBE_WINDOW })
+  checks.push({ capability: 'capture.window', name: 'window-capture', steps: [windowCaptureIndex] })
+
   // Restore what the probe changed: the workspace, then the window it found.
   // Neither step is measured; they only give the desktop back.
   if (workspace !== null) steps.push({ op: 'workspace', name: workspace })
@@ -215,7 +228,8 @@ export function buildProbePlan(input: ProbePlanInput): ProbePlan {
     version: 1,
     id: PROBE_PLAN_ID,
     reason: 'installation acceptance: capability probe',
-    summary: '测量指针、键盘、窗口状态与工作区的控制能力',
+    summary: tr(input.lang ?? 'zh', '测量指针、键盘、窗口状态与工作区的控制能力',
+      'measure pointer, keyboard, window state and workspace control'),
     workspace: null,
     budgetMs: PROBE_PLAN_BUDGET_MS,
     settleMs: 1_000,

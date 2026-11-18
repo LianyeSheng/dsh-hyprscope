@@ -89,6 +89,8 @@ class FakeWorld implements World {
   injected: InjectCommand[][] = []
   dispatched: DispatchRequest[] = []
   captures: CaptureRequest[] = []
+  windowCaptures: { output: string; identifier: string }[] = []
+  windowCaptureError: HyprscopeError | null = null
   closed = false
   /** Workspace whose dispatch throws, as a compositor rejecting the request would. */
   rejectWorkspace: string | null = null
@@ -132,7 +134,31 @@ class FakeWorld implements World {
       height: request.region?.height ?? 1440,
       sha256: `hash-${this.captures.length}`,
       capturedAt: new Date().toISOString(),
-      source: { monitor: null, region: request.region ?? null, scope: request.region === undefined ? 'layout' : 'region' },
+      source: {
+        monitor: null,
+        region: request.region ?? null,
+        scope: request.region === undefined ? 'layout' : 'region',
+        window: null,
+      },
+    }
+  }
+
+  async captureWindow(request: { output: string; identifier: string }): Promise<CaptureResult> {
+    this.windowCaptures.push(request)
+    if (this.windowCaptureError !== null) throw this.windowCaptureError
+    return {
+      path: request.output,
+      bytes: 64,
+      width: 320,
+      height: 200,
+      sha256: `window-${this.windowCaptures.length}`,
+      capturedAt: new Date().toISOString(),
+      source: {
+        monitor: null,
+        region: null,
+        scope: 'window',
+        window: { identifier: request.identifier, appId: 'Alacritty', title: 'terminal' },
+      },
     }
   }
 
@@ -352,6 +378,30 @@ test('measure mode reports a waitEvent timeout as a commit-stage failure', async
   assert.equal(facts[0]?.violation?.kind, 'event.timeout')
   assert.equal(result.steps[0]?.outcome, 'failed')
   assert.equal(facts[1]?.stage, 'done')
+})
+
+test('measure mode records a window capture failure and continues', async (t) => {
+  const plan = planOf([
+    { op: 'screenshot', window: { id: '0x55a1' } },
+    { op: 'screenshot', window: { id: '0xdead' } },
+    { op: 'workspace', name: 'agent' },
+  ])
+  const world = new FakeWorld({ clients: [client({ stableId: '0xabc123' })] })
+  world.windowCaptureError = new HyprscopeError(
+    ErrorCode.SCREENSHOT_FAILED, 'the compositor could not capture this window')
+  const { outcome, facts } = await runPlan(t, plan, world)
+  const result = resultOf(outcome)
+  assert.equal(result.status, 'completed')
+  assert.equal(facts.length, 3)
+  assert.equal(facts[0]?.stage, 'commit')
+  assert.equal(facts[0]?.violation?.kind, 'postcondition')
+  assert.match(facts[0]?.violation?.detail ?? '', /could not capture this window/)
+  assert.equal(result.steps[0]?.outcome, 'failed')
+  assert.equal(facts[1]?.stage, 'commit')
+  assert.equal(facts[1]?.violation?.kind, 'target.missing')
+  assert.equal(result.steps[1]?.outcome, 'failed')
+  assert.equal(facts[2]?.stage, 'done')
+  assert.equal(result.steps[2]?.outcome, 'committed')
 })
 
 test('measure mode still halts on a foreign desktop change', async (t) => {

@@ -189,7 +189,8 @@ export function renderScreenshot(result: CaptureResult): string {
     result.path,
     `${result.width}×${result.height} · ${result.bytes} bytes · sha256 ${result.sha256.slice(0, 16)}…`,
     `scope ${result.source.scope}${result.source.monitor === null ? '' : ` · monitor ${result.source.monitor}`}`
-      + `${result.source.region === null ? '' : ` · region ${Object.values(result.source.region).join(',')}`}`,
+      + `${result.source.region === null ? '' : ` · region ${Object.values(result.source.region).join(',')}`}`
+      + `${result.source.window === null ? '' : ` · window ${result.source.window.appId} "${result.source.window.title}"`}`,
     `captured ${result.capturedAt}`,
   ])
 }

@@ -31,6 +31,9 @@ jobs:
       - run:
           name: Run tests
           command: pnpm test
+      - run:
+          name: Check document/CI consistency
+          command: pnpm run check:consistency
 
   wayland-tools:
     docker:
@@ -52,6 +55,9 @@ jobs:
       - run:
           name: Build the scratch window
           command: bash tools/scratch/build.sh
+      - run:
+          name: Build the window capture helper
+          command: bash tools/capture/build.sh
 
 workflows:
   verify:

@@ -24,6 +24,7 @@ const FULL_CAPABILITIES: CapabilityId[] = [
   'dispatch.window.fullscreen-state',
   'dispatch.window.move',
   'dispatch.window.resize',
+  'capture.window',
 ]
 
 /** Reason the probe's consent card shows. */
@@ -75,6 +76,8 @@ function windowTargets(plan: Plan): WindowTarget[] {
   }
   for (const step of plan.steps) {
     if (step.target !== undefined) found.push(step.target)
+    if (step.window !== undefined) found.push(step.window)
+    if (step.region !== undefined) found.push(step.region.window)
     if (step.at !== undefined && 'window' in step.at) found.push(step.at.window)
     for (const predicate of step.requires ?? []) takePredicate(predicate)
     for (const predicate of step.expect ?? []) takePredicate(predicate)
@@ -96,7 +99,7 @@ test('a full read becomes one validated plan that restores the workspace and foc
   assert.deepEqual(ops(plan), [
     'workspace', 'focusWindow', 'movePointer', 'pause', 'assert', 'chord',
     'floatWindow', 'floatWindow', 'floatWindow', 'floatWindow',
-    'fullscreenWindow', 'fullscreenWindow', 'resizeWindow', 'moveWindow',
+    'fullscreenWindow', 'fullscreenWindow', 'resizeWindow', 'moveWindow', 'pause', 'screenshot',
     'workspace', 'focusWindow',
   ])
   assert.deepEqual(built.moveTarget, { x: 0, y: 0 })
@@ -138,6 +141,12 @@ test('each check points at the steps that commit it, and names stay unique', () 
   const resize = checkOf(built, 'dispatch.window.resize', 'resize-scratch')
   assert.deepEqual(opsOf(resize), ['resizeWindow'])
   assert.equal(resize.verify, 'geometry-size')
+  const windowCapture = checkOf(built, 'capture.window', 'window-capture')
+  assert.deepEqual(opsOf(windowCapture), ['screenshot'])
+  assert.equal(windowCapture.verify, undefined)
+  const captureStep = stepAt(built.plan, windowCapture.steps[0]!)
+  assert.deepEqual(captureStep.window, PROBE_WINDOW)
+  assert.equal(captureStep.label, 'window')
   for (const capability of new Set(built.checks.map(check => check.capability))) {
     const names = built.checks.filter(check => check.capability === capability).map(check => check.name)
     assert.equal(new Set(names).size, names.length, `${capability} check names are unique`)

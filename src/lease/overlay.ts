@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process'
 import { closeSync, openSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { ErrorCode, HyprscopeError } from '../errors.ts'
+import type { RenderLanguage } from '../i18n.ts'
 import { discoverSession } from '../session.ts'
 import { ensureLeaseDirectory, type LeasePaths, type LeaseState } from './state.ts'
 
@@ -60,7 +61,7 @@ function overlayEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 export async function startOverlay(
   paths: LeasePaths,
   state: LeaseState,
-  options: { env?: NodeJS.ProcessEnv } = {},
+  options: { env?: NodeJS.ProcessEnv; lang?: RenderLanguage } = {},
 ): Promise<OverlayHandle> {
   const env = options.env ?? process.env
   await ensureLeaseDirectory(paths)
@@ -78,8 +79,11 @@ export async function startOverlay(
       HYPRSCOPE_NOTICE: paths.noticeFile,
       HYPRSCOPE_PROGRESS: paths.progressFile,
       HYPRSCOPE_INTERFERENCE: paths.interferenceFile,
+      HYPRSCOPE_ANSWER: paths.answerFile,
+      HYPRSCOPE_INTERFERENCE_ANSWER: paths.interferenceAnswerFile,
       HYPRSCOPE_BIN: hyprscopeBin(),
       HYPRSCOPE_NODE: process.execPath,
+      HYPRSCOPE_LANG: options.lang ?? 'zh',
     },
     stdio: ['ignore', 'ignore', logFd],
   })

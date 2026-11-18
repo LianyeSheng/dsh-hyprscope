@@ -1,6 +1,6 @@
 ---
 name: install-hyprscope
-description: Install, build, and verify a hyprscope checkout on Linux. Use when the user asks to install, set up, bootstrap, provision, deploy, re-verify, or troubleshoot hyprscope (dsh-hyprscope); build its Wayland probe, injection or scratch helpers; run its doctor/environment check; accept or refresh its capability baseline; or install its native DSH plugin. Apply this skill for hyprscope installation even when the request is only "set this up on my machine", "make hyprscope work", or "why can't hyprscope control my desktop".
+description: Install, build, and verify a hyprscope checkout on Linux. Use when the user asks to install, set up, bootstrap, provision, deploy, re-verify, or troubleshoot hyprscope (dsh-hyprscope); build its Wayland probe, injection, scratch or window capture helpers; run its doctor/environment check; accept or refresh its capability baseline; or install its native DSH plugin. Apply this skill for hyprscope installation even when the request is only "set this up on my machine", "make hyprscope work", or "why can't hyprscope control my desktop".
 ---
 
 # install-hyprscope
@@ -22,7 +22,7 @@ Run them in order. A missing compositor makes stage 5 unavailable; it does not j
 
 These are the product's safety model, not style preferences.
 
-- Consent cards are answered by the host. `control baseline --probe` and `--accept` only raise cards. Never click, script, synthesize, or pre-approve a card; never edit `baseline.json` or a pending draft by hand.
+- Consent cards are answered by the host. `control baseline --probe` only raises cards: the lease card for the measurement, then the acceptance card when the measurement widens the accepted baseline. Never click, script, synthesize, or pre-approve a card; never edit `baseline.json` or a pending draft by hand.
 - `control baseline --probe` is not read-only. On a machine with an accepted baseline, a re-probe that only narrows rewrites `baseline.json` in place and keeps the old approval, without a second card. Tell the host before running it, and never use it as a harmless check.
 - Desktop actions go only through the CLI's plan and lease path. Never call `hyprctl dispatch`, never add `--allow-locked` to get around a refusal, and never bypass the baseline gate. The only Hyprland configuration change this skill may make is the optional failsafe installer in stage 5, and only with the host's consent.
 - Use pnpm for this repository. Never `npm install` the project or its dependencies.
@@ -63,8 +63,8 @@ Preflight proves install prerequisites, not control readiness. Quickshell and a 
 |---|---|---|
 | Node 22.18+ with type stripping | Runs `.ts` directly; there is no build step | The CLI cannot start |
 | pnpm 12.20.0 | Pinned package manager; the lockfile is pnpm v9 | Dependencies cannot be installed |
-| gcc, pkg-config, wayland-client | Compile the three C helpers | Control and probe are unusable |
-| wayland-scanner, wayland-protocols | Generate protocol bindings | `build:inject` and `build:scratch` fail |
+| gcc, pkg-config, wayland-client | Compile the four C helpers | Control, probe and window capture are unusable |
+| wayland-scanner, wayland-protocols | Generate protocol bindings | `build:inject`, `build:scratch` and `build:capture` fail |
 | Quickshell | Draws the consent card and lease banner | Control and baseline probe fail with `OVERLAY_FAILED` |
 | A Hyprland session | `doctor`, probe, baseline, control | Read-only `doctor` fails with `NO_SESSION` |
 | grim | Screenshots | Observation still works |
@@ -102,6 +102,7 @@ pnpm install --frozen-lockfile
 pnpm run build:probe
 pnpm run build:inject
 pnpm run build:scratch
+pnpm run build:capture
 pnpm run typecheck
 pnpm test
 ```
@@ -110,7 +111,7 @@ The lockfile is authoritative. If `--frozen-lockfile` fails, stop and report the
 
 Running this stage again is safe: the install and builds are idempotent. If the checkout changed, rebuild the helpers and run `doctor` again; it reports whether the baseline is still fresh.
 
-The build scripts need the packages from stage 2. On success they create `bin/wl-globals`, `bin/wl-inject`, and `bin/wl-scratch`; those paths are gitignored.
+The build scripts need the packages from stage 2. On success they create `bin/wl-globals`, `bin/wl-inject`, `bin/wl-scratch` and `bin/wl-capture`; those paths are gitignored. `build:capture` generates the vendored ext-foreign-toplevel-list, ext-image-capture-source and ext-image-copy-capture bindings under `tools/capture/generated/` and links `bin/wl-capture`; it needs `wayland-scanner` and the wayland-protocols development files, like the other helper builds.
 
 `pnpm test` runs the unit tests and the live tests. The live tests skip themselves when no Hyprland session is reachable; skipped live tests are expected on a headless machine, not a failure.
 
@@ -139,11 +140,21 @@ Also run one read-only snapshot to catch discovery errors:
 node bin/hyprscope.ts state --json
 ```
 
+And one window capture, which is still read-only. Pick a mapped window's class from `state`:
+
+```sh
+node bin/hyprscope.ts screenshot --window-app <class> --output "$repo/out/window.png" --json
+```
+
+Success means the JSON has `source.scope: "window"`, a `source.window` with `identifier`/`appId`/`title`, and the PNG exists. It only works for mapped windows, so pick one that is not minimized. If the helper is missing the command says to run `pnpm run build:capture`; if the compositor does not advertise `ext-image-copy-capture`, `ext-foreign-toplevel-list` and `ext-image-capture-source`, window capture is unavailable while layout, monitor and region captures still work through `grim`.
+
 ## 5. Capability baseline
 
-**A probe is not read-only.** On a machine with an accepted baseline, a re-probe whose measurements only narrow the effective set rewrites `baseline.json` in place (a `narrow` revision) and keeps the old approval, without any card. A probe that adds or upgrades capability evidence writes a pending draft that needs acceptance. Tell the host which case may occur before you run it.
+**A probe is not read-only.** On a machine with an accepted baseline, a re-probe whose measurements only narrow the effective set rewrites `baseline.json` in place (a `narrow` revision) and keeps the old approval, without any card. A probe that adds or upgrades capability evidence writes a pending draft and, in the same run, shows the host the acceptance card and waits for the answer; a denied or expired card leaves the draft pending and another probe asks again. Tell the host which case may occur before you run it.
 
 Control is gated by a human-approved capability baseline. It answers "does this machine support what a plan needs", not "is this action allowed"; the lease answers the second question separately.
+
+A plan that takes a window screenshot is gated by the optional `capture.window` capability, which a baseline accepted before this feature does not grant. Adding a capability id is a widening, so after updating an existing checkout that already had an accepted baseline, probe again and have the host answer the acceptance card that probe shows before plans that capture a window can run; the read-only `screenshot` command is unaffected and needs no baseline.
 
 Check freshness through `doctor`, not `--show` alone. `--show` reports the file's state; `doctor` compares it with the running compositor:
 
@@ -177,27 +188,21 @@ This edits the user's Hyprland configuration (with a timestamped backup), adds a
 
 Before probing, confirm Quickshell is available (stage 2). Without it the consent card cannot appear and the probe fails with `OVERLAY_FAILED`.
 
-When a probe is needed, explain what will happen — a short-lived scratch window, a lease consent card, about a minute — and run it only when the host is ready to answer the card:
+When a probe is needed, explain what will happen — a short-lived scratch window, a lease consent card and, if the measurement widens the baseline, an acceptance card in the same run, about a minute — and run it only when the host is ready to answer:
 
 ```sh
 node bin/hyprscope.ts control baseline --probe
 ```
 
-Wait for the card. On approval the probe measures and prints the draft's state, missing capabilities, and the evidence directory (`out/baseline/<probeId>/`). Then review:
+Wait for the lease card. On approval the probe measures; a result that only narrows applies itself, while a widening result shows the acceptance card in the same run and waits. The command then prints the resulting state, missing capabilities and the evidence directory (`out/baseline/<probeId>/`), so there is nothing left for a separate acceptance step. Review the result:
 
 ```sh
 node bin/hyprscope.ts control baseline --show --json
 ```
 
-If a pending draft remains, explain what is missing or degraded before asking for acceptance. Acceptance is a separate human act and a separate card:
+If the acceptance card was denied or expired, nothing is accepted: the draft stays pending, so explain what is missing or degraded and re-run the probe later to ask again; there is no separate acceptance command to fall back on. Never click the card yourself and never hand-edit the baseline. After the host allowed the card, run `doctor --json` again and report the new verdict.
 
-```sh
-node bin/hyprscope.ts control baseline --accept
-```
-
-A re-probe that only narrows capabilities applies itself and leaves no pending draft; in that case do not call `--accept`, just report the new state. If the acceptance card is denied or times out, nothing is written; keep the draft and report it. Never run `--accept` in the background, never click the card, and never hand-edit the baseline. After acceptance, run `doctor --json` again and report the new verdict.
-
-Re-probe after a machine change, a Hyprland upgrade, or a configuration change that affects binds, layout, or input. A probe that only narrows capabilities applies itself; anything wider needs a fresh acceptance.
+Re-probe after a machine change, a Hyprland upgrade, or a configuration change that affects binds, layout, or input. A probe that only narrows capabilities applies itself; anything wider asks for a fresh acceptance in the same run.
 
 If there is no session, skip the rest of this stage with "baseline skipped: no Hyprland session". Control stays unavailable, which is the correct state, not an install defect; stage 6 can still run.
 
@@ -231,7 +236,7 @@ End with a short factual report, not an assurance:
 ```
 Checkout: <path> (commit <short sha>)
 Environment: <distro>, Node <version>, pnpm <version>, Hyprland <version or "not visible">
-Built: wl-globals, wl-inject, wl-scratch | or what failed
+Built: wl-globals, wl-inject, wl-scratch, wl-capture | or what failed
 Tests: pnpm test <pass/fail/skip counts>
 Failsafe: <installed|skipped>
 Baseline: <none|usable|degraded|incomplete>, freshness <fresh|stale|unverified|n/a>, approved <time or "—">, missing <capabilities or none>
@@ -249,9 +254,10 @@ Mark anything skipped as skipped. Never report "installed" for a stage that did 
 | Build fails on `wayland-client` or `wayland-scanner` | Development packages missing | Install the stage 2 packages |
 | `build:scratch` cannot find `xdg-shell.xml` | `wayland-protocols` missing | Install it; the script reads `pkg-config --variable=pkgdatadir wayland-protocols` |
 | `pnpm install` fails with permissions under `/run/user` | Sandboxed runtime directory | Use `TMPDIR` and `--store-dir` as shown; keep the real session for runtime commands |
-| Control fails with `CAPABILITY` before a consent card | Baseline missing, stale, or unverified | Probe, review, accept; do not bypass |
+| Control fails with `CAPABILITY` before a consent card | Baseline missing, stale, or unverified | Probe; when it widens the baseline, the host answers the acceptance card in the same run; do not bypass |
 | `OVERLAY_FAILED` when a card should appear | Quickshell missing, or `HYPRSCOPE_QUICKSHELL` points nowhere | Install Quickshell or set the variable to the real binary; check the overlay log in the lease state directory |
 | Probe fails because `wl-scratch` is missing | C helpers were not built | Re-run `pnpm run build:scratch` |
+| Window capture says the helper is not built, or plan/window capture fails with `SCREENSHOT_FAILED` | `bin/wl-capture` was not built this time, or the compositor does not advertise the ext capture protocols | Run `pnpm run build:capture`; if the protocols are missing, report that window capture is unsupported on this compositor and use `grim` captures instead |
 | Plugin calls fail naming `projectDir` | The checkout moved | Set `projectDir` in the profile's hyprscope row; do not move the checkout |
 | New tools are absent after install | The profile needs a reload or restart | Reload the plugin or restart DSH, then re-check `hyprscope_observe` |
 

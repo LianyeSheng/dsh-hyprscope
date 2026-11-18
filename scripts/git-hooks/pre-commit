@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# hyprscope pre-commit hook.
+# Installed by `pnpm run hooks:install` (core.hooksPath=scripts/git-hooks).
+# Runs the checks that a change must pass before it can be committed:
+#   1. the project test suite,
+#   2. the local mirror of the CircleCI verification workflow,
+#   3. document/skill consistency (stale references fail, sync reminders warn).
+# Do not bypass with `git commit --no-verify` unless the human explicitly asked.
+set -uo pipefail
+
+root="$(git rev-parse --show-toplevel 2>/dev/null)" || {
+  printf 'pre-commit: not inside a git work tree\n' >&2
+  exit 1
+}
+cd "$root" || exit 1
+
+fail=0
+stage() {
+  local label="$1"
+  shift
+  printf '\n== %s ==\n' "$label"
+  if "$@"; then
+    printf 'ok   %s\n' "$label"
+  else
+    printf 'FAIL %s\n' "$label" >&2
+    fail=1
+  fi
+}
+
+printf 'hyprscope pre-commit: tests, local CI, consistency\n'
+
+stage "1/3 project tests (pnpm test)" \
+  pnpm test
+
+# The test suite already ran above, so the local CI stage skips it there.
+stage "2/3 local CI (bilingual pairing, type-check, helper builds)" \
+  bash scripts/ci-local.sh --skip-tests
+
+stage "3/3 consistency (docs and skill references, CI coverage, sync reminders)" \
+  node scripts/check-consistency.ts
+
+if [ "$fail" -ne 0 ]; then
+  cat >&2 <<'EOF'
+
+pre-commit: commit blocked: one or more checks failed above.
+Fix the failures and commit again. \
+--no-verify is reserved for an explicit human request; say so in the record when used.
+EOF
+  exit 1
+fi
+
+printf '\npre-commit: all checks passed\n'

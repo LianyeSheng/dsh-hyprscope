@@ -58,7 +58,10 @@ Measurement changes the failure policy: a step whose premise does not hold, whos
 The card then lists every step on its own line (`2. click · 在 foot 窗口 内 (0.5,
 0.6) 点击左键`), rendered by the tool from the validated plan, so the host approves
 what the plan does rather than an op list; a plan longer than ten steps shows the
-first ten and a count of the rest. `id`, `summary`, `workspace` and
+first ten and a count of the rest. The whole card, including those step lines, is
+rendered in the language chosen by `--lang <zh|en>` on `control run` (default
+`zh`, or the `HYPRSCOPE_LANG` environment value; an unknown value is a usage
+error), while CLI stdout stays English. `id`, `summary`, `workspace` and
 `interferencePromptMs` are optional; everything else has a default, and the
 defaults are applied once, when the document is validated.
 
@@ -155,7 +158,9 @@ The `capabilities` column is checked against the accepted capability baseline
 before the consent card appears; a missing capability is a `CAPABILITY` failure
 naming the id, not a runtime fault. The baseline can only narrow what the code
 declares, and a `required` capability that was merely advertised never counts as
-measured. See [COMPATIBILITY.md](/docs/COMPATIBILITY.md) §5 and
+measured. A `screenshot` step that names a `window` is gated by `capture.window`
+rather than `capture.grim` (see §4). See
+[COMPATIBILITY.md](/docs/COMPATIBILITY.md) §5 and
 [BASELINE.md](/docs/BASELINE.md) §6.
 
 ## 4. Operations
@@ -173,7 +178,7 @@ measured. See [COMPATIBILITY.md](/docs/COMPATIBILITY.md) §5 and
 | `resizeWindow` | `target`, `width`, `height` (absolute) | yes | yes | required | optional | `dispatch.window.resize` |
 | `floatWindow` | `target`, `floating`, `pinned` | yes | yes | required | optional | `dispatch.window.float` and/or `dispatch.window.pin`, only for the fields the step sets |
 | `fullscreenWindow` | `target`, `internal`, `client` (0\|1\|2) | yes | yes | required | optional | `dispatch.window.fullscreen-state` |
-| `screenshot` | `label`, `region` | no | — | optional | — | `capture.grim` |
+| `screenshot` | `label`, plus `region` or `window` (at most one of the two) | no | — | optional | — | `capture.grim` for a region; `capture.window` for a window |
 | `pause` | `ms` (1–1000) | no | — | optional | — | — |
 | `assert` | `requires` | no | — | optional | forbidden | — (the predicates decide) |
 | `waitEvent` | `kind`, `timeoutMs` | no | — | optional | — | `events.socket` |
@@ -188,6 +193,23 @@ clear fullscreen first; the recovery ladder in §6 does that by construction.
 `floating`/`pinned` become explicit `on`/`off` actions, and a fullscreen step
 carries an internal mode and a client mode, each `0` (none), `1` (fullscreen), or
 `2` (maximized), with a missing mode defaulting to `0`.
+
+`screenshot` captures a region or one window. With `window` it uses the same
+target selector as the other ops — `{ "window": { "app": "foot" } }` — and
+`window` and `region` are mutually exclusive; a step with neither captures the
+whole layout. The target is resolved against the run snapshot like any other
+window target, so zero or several matches fault as `target.missing` /
+`target.ambiguous`, and a matching window the compositor reports no
+foreign-toplevel identifier for also faults as `target.missing`; the compositor
+then renders that one toplevel through `ext-image-copy-capture`, so the window is
+captured even when it is on another workspace or covered by another window. Only a mapped window can be captured (a
+minimized or unmapped window is refused), the cursor is not composited, and a
+window with a `no_screen_share` rule or a denied screenshot permission yields the
+compositor's denied placeholder. A capture that fails faults the attempt with the
+helper's reason instead of recording a screenshot. The step is gated by
+`capture.window`; region and layout captures stay gated by `capture.grim` (§3).
+Its card line reads `截图窗口「<app>」`, naming the window by class, then
+title, then id.
 
 `chord` and `text` travel through the compositor's normal key dispatch, so `chord`
 can trigger the host's own keybind; the plan language deliberately has no generic

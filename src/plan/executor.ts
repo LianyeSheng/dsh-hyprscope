@@ -18,6 +18,7 @@ import { ErrorCode, HyprscopeError } from '../errors.ts'
 import type { Client } from '../types.ts'
 import type { DispatchRequest } from '../control/dispatch.ts'
 import type { InjectCommand } from '../inject/injector.ts'
+import type { CaptureResult } from '../screenshot.ts'
 import type { PlanGrant } from './leasegate.ts'
 import {
   OP_SPECS, PLAN_LIMITS, PREDICATE_SPECS,
@@ -975,9 +976,10 @@ export async function executePlan(options: ExecutorOptions): Promise<ExecutionOu
         } else if (step.op === 'screenshot') {
           const label = step.label ?? `shot-${index}`
           const snapshot = await world.snapshot()
-          let region: { x: number; y: number; width: number; height: number } | undefined
-          if (step.region !== undefined) {
-            const resolved = resolveOrViolate(step.region.window, snapshot)
+          const path = store.screenshotPath(label, index)
+          let capture: CaptureResult
+          if (step.window !== undefined) {
+            const resolved = resolveOrViolate(step.window, snapshot)
             if ('violation' in resolved) {
               if (measuring) {
                 await failStepInMeasure(record, resolved.violation, 'commit')
@@ -985,10 +987,49 @@ export async function executePlan(options: ExecutorOptions): Promise<ExecutionOu
               }
               return await halt('faulted', index, record, resolved.violation, 'commit')
             }
-            region = anchorRegion(resolved.client, step.region.rect)
+            const identifier = resolved.client.stableId
+            if (identifier === null || identifier === '') {
+              const violation = fatalViolation(
+                'target.missing',
+                'the compositor did not report a foreign-toplevel identifier for the window',
+                { target: step.window, expected: 'a foreign-toplevel identifier', observed: null },
+              )
+              if (measuring) {
+                await failStepInMeasure(record, violation, 'commit')
+                continue
+              }
+              return await halt('faulted', index, record, violation, 'commit')
+            }
+            try {
+              capture = await world.captureWindow({ output: path, identifier })
+            } catch (error) {
+              const violation = fatalViolation(
+                'postcondition',
+                error instanceof Error ? error.message : String(error),
+                { target: step.window, expected: 'a PNG of the window', observed: null },
+              )
+              await store.record({ at: iso(now()), kind: 'step.error', step: index, detail: { message: violation.detail } })
+              if (measuring) {
+                await failStepInMeasure(record, violation, 'commit')
+                continue
+              }
+              return await halt('faulted', index, record, violation, 'commit')
+            }
+          } else {
+            let region: { x: number; y: number; width: number; height: number } | undefined
+            if (step.region !== undefined) {
+              const resolved = resolveOrViolate(step.region.window, snapshot)
+              if ('violation' in resolved) {
+                if (measuring) {
+                  await failStepInMeasure(record, resolved.violation, 'commit')
+                  continue
+                }
+                return await halt('faulted', index, record, resolved.violation, 'commit')
+              }
+              region = anchorRegion(resolved.client, step.region.rect)
+            }
+            capture = await world.capture({ output: path, region })
           }
-          const path = store.screenshotPath(label, index)
-          const capture = await world.capture({ output: path, region })
           record.screenshot = capture.path
           record.effect = `captured ${label} (${capture.width}x${capture.height})`
           ctx.screenshots.push({ label, step: index, path: capture.path, sha256: capture.sha256 })

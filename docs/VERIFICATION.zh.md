@@ -27,7 +27,7 @@
 2026-11-17 在测试机上逐项跑过：
 
 - 同意卡片：`hyprscope control request --reason "检查同意卡片与横幅切换" --ttl 120 --consent 90` 弹出全屏模态卡片（`hyprscope layers` 里是 `hyprlease-consent`，level 3，覆盖 2560×1440），文案、原因、倒计时、拒绝/允许按钮都正常。截图：`out/lease-consent-2.png`。
-- 批准后横幅：`hyprscope control __control allow` 之后 `status` 变 `granted`，layer 变成 `hyprlease-banner`（2560×56），显示剩余时间和「立即收回」。截图：`out/lease-banner-2.png`。
+- 批准后横幅：同意被记录之后 `status` 变 `granted`，layer 变成 `hyprlease-banner`（2560×56），显示剩余时间和「立即收回」。截图：`out/lease-banner-2.png`。
 - 主动交还：`hyprscope control done` 之后 `phase: released`，layer 消失。
 - 强制收回：`hyprscope control panic` 之后 `phase: revoked`，layer 消失（`out/lease-after-failsafe.png` 是干净桌面）。
 - 兜底快捷键：`install-bind` 写入 `~/.config/hypr/hyprland.lua` 的标记块并通过 `hyprctl binds -j` 的 `description` 验证（`modmask 72`、`key Escape`、`description` 含 `hyprscope`），`hyprctl configerrors` 为空；直接执行 bind 里的命令（`/usr/bin/node .../bin/hyprscope.ts control panic --source shortcut`）能把 `granted` 租约打到 `revoked`。
@@ -60,9 +60,9 @@
 - 同意卡片的按钮此前绑在两个未定义的属性上（`nodePath`/`binPath`），点击只会启动一个空命令，所以点了没反应；现在补齐属性并做了乐观 UI——点击当场收起卡片，横幅立即显示「正在交接控制…」。
 - 横幅原来随租约结束被 requester 立刻杀掉，看不到任何回执；现在改成执行器逐步骤写 `progress.json`，横幅显示「执行中 k/n · op」，正常结束（done/denied/expired）时浮层自己保留约 2.4 秒展示结果再退出，只有 `revoked`（宿主抢回）才立即消失。截图 `out/ux-banner-sequence.png`（交接中 → 执行中 4/9 → 6/9 → 9/9）、`out/ux-10-receipt.png`（执行完成 · 9 步）。
 - 浮层此前是 requester 的子进程、stderr 走管道；requester 一退出管道关闭，浮层的下一次 stderr 写入就吃 SIGPIPE 直接死掉，回执永远渲染不出来。现在浮层用自己的日志 fd 并 `detach`，与 requester 生命周期解耦。
-- 横幅上的「立即收回」按钮原来调用 `__control panic`，而 `__control` 只在 consent 阶段有效，granted 阶段点了没用；改成调用 `hyprscope control panic`（走 holder 的交还路径）。
+- 横幅上的「立即收回」按钮原来调用一个内部同意入口，而它只在 consent 阶段有效，granted 阶段点了没用；改成调用 `hyprscope control panic`（走 holder 的交还路径）。
 
-**同意卡片不是认证**：这一轮还发现一个更根本的问题——同意卡片和注入在同一个 seat 上，agent 可以直接用 `bin/wl-inject` 点掉自己的「允许」。实测确认（用注入的点击测试按钮可用性时暴露）。已加的缓解是：注入 helper 现在要求租约证明（`--lease-state/--lease/--plan`），每条会注入的命令前重读 `state.json`，`phase` 不是 `granted`、id/hash 不匹配或过期就拒绝；`consent` 阶段注入实测返回 `lease gate: phase is "consent", not "granted"`，`revoked` 之后同样拒绝。另外每次批准都会记录来源：`grantedBy` 在 `status` 里可见（`overlay` 表示卡片按钮，`cli` 表示数据面）。`__control` 这个数据面入口依然存在，同 uid 也能伪造 state；真正的边界需要独立 uid 的 broker 或独立 compositor，见 `docs/LEASE.md`。
+**同意卡片不是认证**：这一轮还发现一个更根本的问题——同意卡片和注入在同一个 seat 上，agent 可以直接用 `bin/wl-inject` 点掉自己的「允许」。实测确认（用注入的点击测试按钮可用性时暴露）。已加的缓解是：注入 helper 现在要求租约证明（`--lease-state/--lease/--plan`），每条会注入的命令前重读 `state.json`，`phase` 不是 `granted`、id/hash 不匹配或过期就拒绝；`consent` 阶段注入实测返回 `lease gate: phase is "consent", not "granted"`，`revoked` 之后同样拒绝。另外每次批准都会记录来源：`grantedBy` 在 `status` 里可见（`overlay` 表示卡片按钮，`cli` 表示数据面）。同意状态仍然是同一 uid 下的数据面状态，同 uid 也能伪造；真正的边界需要独立 uid 的 broker 或独立 compositor，见 `docs/LEASE.md`。
 
 **阻塞式干扰询问（2026-11-17 第三轮）**：可恢复干扰不再自动修复。执行器先发布 `interference.json`（带 id、第 k/n 步、被打破的假设、倒计时），浮层弹出模态卡片，宿主选「继续执行」才恢复并重放，选「终止操作」或超时未答就 fault 并保留已确认步骤。计划里的 `repairGraceMs` 相应换成 `interferencePromptMs`（默认 12 秒）。（这一段记录的是当时的实现；第四轮把"原地修复"整体换成了派生恢复计划，`repairable`/`repairs` 字段和 `repairGraceMs` 都已从代码里删除，保留在这里只为说明演进过程。）
 
@@ -86,7 +86,7 @@
 
 产物与租约状态：根运行目录 `out/runs/20261117T112526-ea7de0/` 有第一段的 `suspended.json`、`timeline.jsonl`（`step.suspend`、`run.suspended`、`run.resume`）和聚合后的 `result.json`（`attempts: [suspended, completed]`）；派生尝试目录 `out/runs/20261117T112528-c8286a/` 有自己的 `plan.json`（带 lineage 和哈希）。`state.json` 里 `rootPlanHash` 保持原计划哈希，`planHash` 换成派生计划哈希，`renewals` 有一条 `attempt: 1`、`ttlMs: 34000` 的记录。
 
-取消类验证的说明：这三轮实机运行里的同意是通过数据面 `hyprscope control __control allow --source cli` 完成的，`grantedBy` 记成 `cli`；真实人手点击卡片的恢复流程这次没有留记录，恢复卡片的渲染与按钮逻辑靠浮层的 52 条断言和交互截图覆盖。
+取消类验证的说明：这三轮实机运行里的同意是通过数据面记录而不是真人点击卡片完成的，`grantedBy` 记成 `cli`；真实人手点击卡片的恢复流程这次没有留记录，恢复卡片的渲染与按钮逻辑靠浮层的 52 条断言和交互截图覆盖。
 
 这轮还补了一个事件消费的漏洞：`pause`/`waitEvent`/`screenshot` 这类不走 preflight 的步骤原来会把 tap 的游标推进到当前末尾，等于吞掉到达之前的硬事件（新窗口打开、窗口关闭、监视器变化）。现在这些步骤执行前先检查一次硬事件，`waitEvent` 只消费它等到的那一个事件、保留后面的事件。实测：计划三步各 1 秒的 `pause`，在第一个 pause 期间用 `foot` 打开一个新窗口，运行在下一个 pause 之前 `faulted`，`broken.kind = foreign-event`、`detail = external openwindow event`。
 
@@ -106,7 +106,7 @@
 
 **探针**：`hyprscope control baseline --probe` 先申请验收租约（同意卡片理由「installation acceptance: capability probe」，计划哈希 `sha256("hyprscope-probe/1")` = `48dcf1a2…`，TTL 60 s），测量、写 `out/baseline/<probeId>/{probe.jsonl,summary.json,capture.png,scratch.log}`，然后释放租约。连续三次探针都得到 `state: usable`、18 项能力 `supported/measured`，只有 `dispatch.window.move-to-workspace` 是 unknown（记录用，不门控）。测到的往返包括：指针移到测试窗口（scratch client）中心 `1305,720` 后读回偏差 `0,0`；`F12` 被测试窗口按 evdev `88` 收到，按下与松开都收到；move 读回完全一致，resize 读回 `360×240`，float/pin/fullscreen 设置与清除都有读回；`openwindow`/`closewindow` 按地址匹配；清理恢复了之前的焦点和工作区，没有留下测试窗口或 helper 进程；租约以 `released` 结束（`grantedBy: cli`）。
 
-**验收与收窄**：`--accept` 写出 `baseline.json`（0600），带 `approval {approvedBy: "human", source: "cli", evidenceSha256}` 和一条 `revisions[kind: "accept"]`；之后 `doctor` 报告 `baseline: usable · approved … · hyprland 0.57.2`。后来一次探针的有效集是子集、证据也没有变强，它就地重写了已验收的文件，保留批准并追加 `revisions[kind: "narrow"]`；任何更宽的变化（包括有效能力的 `advertised → measured`）都会变回待批准草稿，需要 `--accept`。
+**验收与收窄**：验收写出 `baseline.json`（0600），带 `approval {approvedBy: "human", source: "cli", evidenceSha256}` 和一条 `revisions[kind: "accept"]`；之后 `doctor` 报告 `baseline: usable · approved … · hyprland 0.57.2`。后来一次探针的有效集是子集、证据也没有变强，它就地重写了已验收的文件，保留批准并追加 `revisions[kind: "narrow"]`；任何更宽的变化（包括有效能力的 `advertised → measured`）都会变回待批准草稿，等下一次探针请宿主确认。
 
 **门控**：没有基线时，`hyprscope control run --dry-run` 以 `CAPABILITY` 失败，且不弹同意卡片；基线是 `incomplete` 时，它准确列出了没测到的必需能力（`observe.geometry`、`inject.pointer`、`inject.keyboard`、`events.socket`）；验收之后，一个单步 `pause` 计划跑到 `completed`，报告里带 `baseline {state: usable, approvedAt, compositorVersion: "0.57.2", degraded: []}`。
 
@@ -185,13 +185,13 @@ DSH 插件 bundle 于 2026-11-18 在同一台测试机上验证：Hyprland 0.57.
 
 基线验收和计划预览挪到了同一张同意卡上：基线流程不再需要终端命令，计划则是"读懂它要做什么"之后再批准。上一节留下的未验证项——同意卡到执行的路径、`planBound` 下的注入、`hyprscope_act` 的实跑——这里补上了。
 
-- `hyprscope_baseline` 的 `accept` 动作（命令行：`hyprscope control baseline --accept`）向浮层要一张确认卡：结论、必需/可选能力计数、证据哈希。拒绝或超时的卡什么都不写，草稿保留。确认用的租约记录以 `released`/`denied`/`expired` 结束，带卡片（当时是 `confirm`；下文合并后是 `card` + `approvalOnly`）、`ttlMs: 0`、`planBound: false`，不启动 holder，也永远不会进入 `granted`，所以执行器和 `wl-inject` 都不可能凭它注入。
+- 测量结果放宽已验收基线时，探针在同一条命令里向浮层要一张确认卡：结论、必需/可选能力计数、证据哈希。拒绝或超时的卡什么都不写，草稿保留，只有下一次探针会重新询问。确认用的租约记录以 `released`/`denied`/`expired` 结束，带卡片（当时是 `confirm`；下文合并后是 `card` + `approvalOnly`）、`ttlMs: 0`、`planBound: false`，不启动 holder，也永远不会进入 `granted`，所以执行器和 `wl-inject` 都不可能凭它注入。
 - 计划租约带一张卡：计划描述、预算和每步一行（`2. click · 在 foot 窗口 内 (0.5, 0.6) 点击左键`），由 `src/plan/card.ts` 从已校验的计划渲染；超过十步的计划显示前十步和剩余步数。旧的单行 `plan · N steps · ops` 预览只作为这次改动之前写入的租约文件的回退。（当时的字段名是 `planCard`；下一节把两个卡片字段合并成了一个。）
-- DSH 组合包把验收暴露为 `hyprscope_baseline` 的 `accept` 动作：它只让 CLI 弹卡，自己不回答，其他工具也不允许传 `--accept`。
+- DSH 组合包通过 `hyprscope_baseline` 的 `probe` 动作暴露验收：同一次调用先测量，结果放宽时再让 CLI 弹出确认卡；工具自己不回答那张卡。
 
 本轮实机验证：
 
-- 全程工具调用：`hyprscope_baseline` 的 `probe` 测出 `f1e1ac0e-…`（full、`usable`、19 项能力、451 ms），`accept` 弹出确认卡，宿主点了允许。`baseline.json` 记录 `approval.source: "overlay"`、`approvedAt`，证据哈希与探针写下的相同（`dd7638165d7a…`）；草稿 `baseline.pending.json` 已删除。
+- 全程工具调用：`hyprscope_baseline` 的 `probe` 测出 `f1e1ac0e-…`（full、`usable`、19 项能力、451 ms），同一次调用弹出确认卡，宿主点了允许。`baseline.json` 记录 `approval.source: "overlay"`、`approvedAt`，证据哈希与探针写下的相同（`dd7638165d7a…`）；草稿 `baseline.pending.json` 已删除。
 - 确认对应的租约记录以 `phase: released` 结束，`grantedBy: overlay`、`ttlMs: 0`、`planBound: false`、`holderPid: null`——是一条批准记录，不是控制窗口。
 - 之后 `doctor` 报 `baseline {present: true, state: usable, staleness: fresh}`，无差异；`hyprscope control run` 不再以 `CAPABILITY` 拒绝。
 - 一步的 `hyprscope_act`（`movePointer` 到 `1280,720`）由宿主点计划卡后执行，16 ms 完成；回执带 `baseline {state: usable, approvedAt, compositorVersion: 0.57.2}`，运行目录里有 `plan.json`、`result.json`、`timeline.jsonl`。
@@ -208,7 +208,7 @@ DSH 插件 bundle 于 2026-11-18 在同一台测试机上验证：Hyprland 0.57.
 - 测量计划只对 scratch 窗口跑了 16 步：幂等工作区 dispatch、聚焦、带断言回读的指针移动、F12 按键、浮动开/关、置顶开/关、全屏开/关、缩放、移动，最后是工作区和焦点恢复。16 步全部提交（`stage: done`）；`probe.jsonl` 记录了每步一条事实、scratch 客户端的 `ready` 与按键行、事件 socket 的往返以及运行后的回读，证据目录里还有这次运行的 `plan.json`、`result.json` 和 `timeline.jsonl`。
 - 第一次探测真实验证了测量模式"记录并继续"的行为，也暴露了一个真实缺陷：先移动再缩放浮动窗口时，合成器会以窗口中心为基准缩放，请求的 `(0,0)` 回读成 `(-20,-20)`，`dispatch.window.move` 因此被记为不支持。因为这只是收窄有效集，探针自己应用了更窄的基线（`diff.removed: ["dispatch.window.move"]`）。把测量计划改成先缩放、后移动之后，第二次探测（`c8666874…`）回读到正好 `(0,0,360,240)`，所有被测量的能力都是 supported、没有警告，草稿只放宽了基线。
 - 因为草稿重新加回了 `dispatch.window.move`，它需要一次新的验收：卡片弹出，宿主点了允许，`baseline.json` 记录 `approval.source: "overlay"`，证据哈希是 `6ca2096164f2…`。之后 `doctor` 报 `baseline {state: usable, staleness: fresh}`，18 项能力生效，0 项降级、0 项必需能力缺失。
-- 只有一张同意卡：`state.json` 只带一个 `card` 字段（标题、行、按钮文字），申请路径只有 `requestLease`。计划租约用它装计划描述和步骤；仅批准请求（`approvalOnly: true`，`baseline --accept` 使用）用同一张卡装这次行动的事实。浮层只渲染一张卡，记录规则不变：批准保持 `ttlMs: 0` 和 `planBound: false`，允许后以 `released` 结束，不启动 holder，永远不能注入。探针的租约卡和任何计划卡一样，当天早些时候引入的探针专用卡片变体已删除。
+- 只有一张同意卡：`state.json` 只带一个 `card` 字段（标题、行、按钮文字），申请路径只有 `requestLease`。计划租约用它装计划描述和步骤；仅批准请求（`approvalOnly: true`，放宽的探针展示验收卡时使用）用同一张卡装这次行动的事实。浮层只渲染一张卡，记录规则不变：批准保持 `ttlMs: 0` 和 `planBound: false`，允许后以 `released` 结束，不启动 holder，永远不能注入。探针的租约卡和任何计划卡一样，当天早些时候引入的探针专用卡片变体已删除。
 - 单卡在真实浮层上核对过。计划同意卡渲染出标题 `Agent 请求执行计划`、原因、`计划 card-check：…`、`共 2 步 · 预算 8 秒`、每步一行、`拒绝` / `允许操控` 和倒计时；仅批准卡渲染出标题 `hyprscope · 接受能力基线`、结论/计数行、`拒绝` / `允许并接受`，没有 TTL 文案。两张都来自同一个 `card` 字段和同一个浮层卡片（`out/verify-plan-card.png`、`out/verify-approval-card.png`）。截图之后由 agent 侧拒绝了这两张卡，所以没有批准任何东西，也没有改基线文件。
 - 计划断言不了的效果由探针观察：注入的 F12 到达了 scratch 客户端（`keyPressed: true`），事件往返看到 `openwindow`、`closewindow` 和 `windowGone`，运行结束后 scratch 窗口已从 `hyprctl clients` 消失，工作区和焦点由计划自己的最后几步恢复到原来的样子。没有留下 scratch 窗口或租约。
 - 本轮自动检查：`pnpm run typecheck` 干净；`pnpm test` 通过 386 个测试（318 仓库 + 68 组合包），包括 `test/probe-plan.test.ts`（9）、`test/measure.test.ts`（9）和 `test/probe-derive.test.ts`（13）；双语门禁通过 12 对文档。

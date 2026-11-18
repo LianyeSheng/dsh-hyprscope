@@ -14,12 +14,15 @@
 /observation-and-capability-contract/2-coordinates-and-scaling:
   en: 1f720e46717dfacf
   zh: b842fc9b0aaba318
+/observation-and-capability-contract/2-coordinates-and-scaling/2-1-screenshot-record:
+  en: 15a51db3d314c7c6
+  zh: defb01febf0617ed
 /observation-and-capability-contract/3-event-stream:
   en: f09b23f1b4d0148a
   zh: 5fcaad24efd51857
 /observation-and-capability-contract/4-error-codes:
-  en: 8e2c6c1c24d1b7a6
-  zh: 5de6b13e60bc41ef
+  en: 17cc36c6dd883733
+  zh: 2887dc4d22d095b8
 /observation-and-capability-contract/5-capability-report:
   en: a4c7d6929f2b913a
   zh: 942e496be32306a4
@@ -27,11 +30,11 @@
   en: d56b10df8f0968e0
   zh: 2af21db642028a3d
 /observation-and-capability-contract/6-mapping-to-dsh-cua:
-  en: 3abb98257c79f2ef
-  zh: d6099cd27a9c67b1
+  en: e12bb4c34418fb37
+  zh: c80f7e8a086e501d
 /observation-and-capability-contract/7-version-sensitive-points:
-  en: e6cdcd90d5d0cafe
-  zh: 3592362e26f90e9d
+  en: 1a37e2c5b5058793
+  zh: b5a3b12aaac483d2
 /observation-and-capability-contract/8-control-lease-hyprscope-control:
   en: c924fc3fa8f3f6dd
   zh: fe1d5c9754978018

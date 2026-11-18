@@ -36,7 +36,7 @@ Three targets, chosen explicitly:
 - There is no systemd unit and no auto restart: the desktop runs until `desktop stop`, the window closes, or the login session ends.
 - Closing the window destroys the desktop. It is the only revoke path the desktop itself has, and `desktop stop` is its deliberate form.
 - If a plan was running, it faults with `target.desktop-closed`, keeps the confirmed steps, and hands the facts back; the agent asks the user in the conversation whether it was accidental.
-- A closed desktop is not restarted automatically. `desktop start` after a close creates a new instance with a new signature, so the new desktop needs its own probe and acceptance.
+- A closed desktop is not restarted automatically. `desktop start` after a close creates a new instance with a new signature, so the new desktop needs its own probe (which asks for acceptance when the measurement widens the baseline).
 
 Two points remain open (§12): whether closing the parent's window really terminates the nested compositor, and whether DSH reaps the background task's children when the session ends. `desktop stop` itself was verified on the machine.
 
@@ -78,8 +78,8 @@ The baseline stays a per-instance verdict. The user's desktop keeps the machine-
 - Drift compares the recorded version, provider, `input:follow_mouse`, bind count, whether a plain F12 is bound, configuration errors as a set, and `configHash` when one is recorded. Any difference is `stale`; a value the baseline does not record is `unverified`; a value the live compositor cannot report is `stale`.
 - A baseline written before drift tracking has no `effective` block; it is `unverified`, and control refuses it with `CAPABILITY` until it is re-probed.
 - `desktop status` reports a changed generated config as `stale`; `doctor` reports the target, the `fresh`/`stale`/`unverified` verdict, the reasons and the field differences. `run` (including `--dry-run`) and `request` refuse a stale or unverified baseline with `CAPABILITY` before any consent card, because control must be decided by a measurement of what is running; read-only observation is unaffected.
-- Editing an agent snippet invalidates the baseline. A probe while the running compositor still uses the old configuration is refused with `DESKTOP_FAILED` (`stop and start the desktop before probing it`), so the flow is: stop the desktop, start it again (new signature, so the new desktop needs its own probe), then probe and accept. Restoring the snippet before restarting makes the baseline `fresh` again.
-- Re-probing a stale baseline otherwise follows the normal probe/accept flow; narrowing still applies automatically, widening still needs a human accept.
+- Editing an agent snippet invalidates the baseline. A probe while the running compositor still uses the old configuration is refused with `DESKTOP_FAILED` (`stop and start the desktop before probing it`), so the flow is: stop the desktop, start it again (new signature, so the new desktop needs its own probe), then probe (a widening probe asks the host for the confirmation card). Restoring the snippet before restarting makes the baseline `fresh` again.
+- Re-probing a stale baseline otherwise follows the normal probe flow; narrowing still applies automatically, and a widening probe asks the host for acceptance itself.
 
 This is also why the agent desktop is cheaper than the user's desktop: its configuration is generated, so the version-dependent layer can be attested once per Hyprland version while the installation layer collapses to one probe per generated config.
 
@@ -110,7 +110,7 @@ hyprscope control desktop status [--json]
 hyprscope control desktop stop [--json]
 hyprscope control run plan.json --desktop user|agent|external [--json]
 hyprscope control request / status / done / panic --desktop user|agent|external [--json]
-hyprscope control baseline --probe / --show / --accept --desktop user|agent|external [--json]
+hyprscope control baseline --probe / --show --desktop user|agent|external [--json]
 hyprscope <command> --desktop user|agent|external [--json]
 ```
 

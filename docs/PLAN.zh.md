@@ -41,7 +41,7 @@
 }
 ```
 
-`reason` 和 `summary` 是宿主在同意卡片上先读到的行。卡片随后逐步列出每一步（`2. click · 在 foot 窗口 内 (0.5, 0.6) 点击左键`），由工具从已校验的计划渲染，因此宿主批准的是计划要做什么，而不是一串 op；超过十步的计划只显示前十步和剩余步数。`id`、`summary`、`workspace` 和 `interferencePromptMs` 可选；其他所有字段都有默认值，默认值在计划被校验时补上。
+`reason` 和 `summary` 是宿主在同意卡片上先读到的行。卡片随后逐步列出每一步（`2. click · 在 foot 窗口 内 (0.5, 0.6) 点击左键`），由工具从已校验的计划渲染，因此宿主批准的是计划要做什么，而不是一串 op；超过十步的计划只显示前十步和剩余步数。整张卡片（包括这些步骤行）按 `--lang <zh|en>` 选择的语言渲染（默认 `zh`，或 `HYPRSCOPE_LANG` 环境变量；未知值按用法错误处理），CLI 的 stdout 仍是英文。`id`、`summary`、`workspace` 和 `interferencePromptMs` 可选；其他所有字段都有默认值，默认值在计划被校验时补上。
 
 | 字段 | 规则 |
 |---|---|
@@ -108,7 +108,7 @@
 
 隐式谓词不写在计划里：每个步骤之前都会重读租约并重新检查预算，在检查声明的 `requires` 之前会先排空事件流。
 
-`capabilities` 列会在同意卡片出现之前对照已验收的能力基线（capability baseline）检查；缺少某项能力是一次 `CAPABILITY` 失败，并指明该 id，而不是运行时 fault。基线只能收窄代码声明的内容，仅被 advertised 的 `required` 能力永远不算 measured。见 [COMPATIBILITY.md](/docs/COMPATIBILITY.zh.md) §5 和 [BASELINE.md](/docs/BASELINE.zh.md) §6。
+`capabilities` 列会在同意卡片出现之前对照已验收的能力基线（capability baseline）检查；缺少某项能力是一次 `CAPABILITY` 失败，并指明该 id，而不是运行时 fault。基线只能收窄代码声明的内容，仅被 advertised 的 `required` 能力永远不算 measured。带 `window` 的 `screenshot` 步骤由 `capture.window` 门控，而不是 `capture.grim`（见 §4）。见 [COMPATIBILITY.md](/docs/COMPATIBILITY.zh.md) §5 和 [BASELINE.md](/docs/BASELINE.zh.md) §6。
 
 ## 4. 操作
 
@@ -125,7 +125,7 @@
 | `resizeWindow` | `target`, `width`, `height` (absolute) | 是 | 是 | 必填 | 可选 | `dispatch.window.resize` |
 | `floatWindow` | `target`, `floating`, `pinned` | 是 | 是 | 必填 | 可选 | `dispatch.window.float` 和/或 `dispatch.window.pin`，仅限该步骤设置的字段 |
 | `fullscreenWindow` | `target`, `internal`, `client` (0\|1\|2) | 是 | 是 | 必填 | 可选 | `dispatch.window.fullscreen-state` |
-| `screenshot` | `label`, `region` | 否 | — | 可选 | — | `capture.grim` |
+| `screenshot` | `label`，外加 `region` 或 `window`（两者至多一个） | 否 | — | 可选 | — | 区域用 `capture.grim`；窗口用 `capture.window` |
 | `pause` | `ms` (1–1000) | 否 | — | 可选 | — | — |
 | `assert` | `requires` | 否 | — | 可选 | 禁止 | —（由谓词决定） |
 | `waitEvent` | `kind`, `timeoutMs` | 否 | — | 可选 | — | `events.socket` |
@@ -133,6 +133,8 @@
 `moveWindow` 和 `resizeWindow` 是绝对的：`x`/`y` 与 `width`/`height` 是布局像素，发出的 Lua 调用不携带 `relative` 字段，而该可选字段本来会选择相对放置。窗口处于 fullscreen 时 compositor 会拒绝这两个调用，因此几何步骤必须先清除 fullscreen；§6 的恢复顺序在构造上做到了这一点。
 
 `floatWindow` 和 `fullscreenWindow` 设置状态而不是切换状态：`floating`/`pinned` 变成显式的 `on`/`off` 动作，fullscreen 步骤携带一个内部模式和一个客户端模式，各自是 `0`（无）、`1`（fullscreen）或 `2`（maximized），缺失的模式默认为 `0`。
+
+`screenshot` 截取一个区域或者一个窗口。带 `window` 时使用和其他 op 相同的目标选择器——`{ "window": { "app": "foot" } }`——并且 `window` 与 `region` 互斥；两者都不带的步骤截取整个布局。目标像其他窗口目标一样针对运行快照解析，所以零个或多个匹配会以 `target.missing` / `target.ambiguous` fault，匹配到的窗口如果没有 compositor 报告的 foreign-toplevel 标识也会以 `target.missing` fault；随后由 compositor 通过 `ext-image-copy-capture` 渲染这一个 toplevel，因此它位于其他工作区或者被遮住也能截到。只能截已映射的窗口（最小化或未映射的窗口会被拒绝），光标不会合成进图像，带 `no_screen_share` 规则或截图权限被拒绝的窗口会得到 compositor 的拒答占位图。截取失败时这次尝试会带着 helper 给出的原因 fault，而不是记录一张截图。这个步骤由 `capture.window` 门控；区域和布局截取仍然由 `capture.grim` 门控（§3）。它的卡片行是 `截图窗口「<app>」`，依次用 class、标题、id 命名窗口。
 
 `chord` 和 `text` 走 compositor 正常的按键 dispatch，因此 `chord` 可以触发宿主自己的键绑定；计划语言刻意不提供通用的 `dispatch` 操作，不提供 `exec`，不提供配置编辑，也没有逃生门。
 

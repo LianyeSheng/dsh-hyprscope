@@ -193,6 +193,30 @@ test('assertPlanCapabilities throws CapabilityError carrying every issue', () =>
   })
 })
 
+test('a screenshot step names the capability its target actually uses', () => {
+  const region = planOf([{
+    op: 'screenshot', label: 'before',
+    region: { window: { id: WINDOW_ID }, rect: [0, 0, 1, 1] },
+  }])
+  const windowStep = planOf([{ op: 'screenshot', label: 'zen', window: { app: 'zen' } }])
+  // A window target needs capture.window and does not touch grim.
+  assert.deepEqual(planCapabilityIssues(windowStep, acceptedBaseline()), [])
+  assert.deepEqual(planCapabilityIssues(windowStep, acceptedBaseline({ omit: ['capture.grim'] })), [])
+  const withoutWindow = acceptedBaseline({ omit: ['capture.window'] })
+  assert.equal(withoutWindow.state, 'usable')
+  const issues = planCapabilityIssues(windowStep, withoutWindow)
+  assert.deepEqual(issues.map(issue => issue.capability), ['capture.window'])
+  assert.equal(issues[0]?.path, '$.steps[0]')
+  assert.equal(issues[0]?.level, 'optional')
+  assert.match(issues[0]?.message ?? '', /step 1 "screenshot" needs capability "capture\.window"/)
+  // A region target still needs grim and is unaffected by capture.window.
+  assert.deepEqual(planCapabilityIssues(region, acceptedBaseline({ omit: ['capture.window'] })), [])
+  assert.deepEqual(
+    planCapabilityIssues(region, acceptedBaseline({ omit: ['capture.grim'] })).map(issue => issue.capability),
+    ['capture.grim'],
+  )
+})
+
 test('assertControlAvailable refuses a missing baseline but accepts usable and degraded ones', () => {
   assert.throws(() => assertControlAvailable(null), (error: unknown) => {
     assert.ok(error instanceof CapabilityError)

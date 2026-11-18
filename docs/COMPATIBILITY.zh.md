@@ -2,7 +2,7 @@
 
 [English](/docs/COMPATIBILITY.md) | 中文
 
-> 状态：**已实现**。`src/compat/` 负责能力目录、基线读取器、有效集规则和陈旧比对；`src/compat/probe.ts` 测量这台机器，`hyprscope control baseline --probe/--show/--accept` 是命令接口（accept 会要一张确认卡），`doctor` 报告基线摘要和陈旧判定。探针的只读阶段留在 `src/compat/probe.ts`；每个会改变桌面的测量都是 `src/compat/probeplan.ts` 构建的一份测量计划里的一步，由普通计划执行器在内部测量模式下、在探针自己的租约和同一套注入门控下运行。这份文档解释这个安装步骤为什么存在、必须保证什么。
+> 状态：**已实现**。`src/compat/` 负责能力目录、基线读取器、有效集规则和陈旧比对；`src/compat/probe.ts` 测量这台机器，`hyprscope control baseline --probe/--show` 是命令接口（放宽已验收基线的那次探针自己会要一张确认卡），`doctor` 报告基线摘要和陈旧判定。探针的只读阶段留在 `src/compat/probe.ts`；每个会改变桌面的测量都是 `src/compat/probeplan.ts` 构建的一份测量计划里的一步，由普通计划执行器在内部测量模式下、在探针自己的租约和同一套注入门控下运行。这份文档解释这个安装步骤为什么存在、必须保证什么。
 
 测试机验证过的数字（Hyprland 0.57.2、Lua 配置、单 `wl_seat`、单输出 2560×1440）只对那台测试机成立，[VERIFICATION.md](/docs/VERIFICATION.zh.md) 开头已经写明。这份文档把这句话变成一个安装动作：**测一遍、记下来、人确认、运行时按它收窄**。
 
@@ -74,7 +74,8 @@
 | `dispatch.window.pin` | op `floatWindow`（`pinned`）；恢复模板 `state` |
 | `dispatch.window.fullscreen-state` | op `fullscreenWindow`；恢复模板 `state`（全屏那一半） |
 | `observe.window.modes` | 谓词 `window.state` 依赖的数字字段 `fullscreen` / `fullscreenClient` |
-| `capture.grim` | op `screenshot`；谓词 `region.unchanged` / `region.changed` |
+| `capture.grim` | 携带 `region` 的 `screenshot` op；谓词 `region.unchanged` / `region.changed` |
+| `capture.window` | 携带 `window` 的 `screenshot` op；需要编译好的 `bin/wl-capture`，以及提供 `ext-image-copy-capture`、`ext-foreign-toplevel-list`、`ext-image-capture-source` 的 compositor；由测量计划截取探针自己的测试窗口来测 |
 | `observe.lock` | `hyprscope state` 快照里的 `lock` 字段（执行器用的 lean snapshot 没有它，也没有谓词或 op 依赖，属于记录用；尽力而为，`null` 不等于已解锁） |
 | `dispatch.window.move-to-workspace` | 只有 dispatcher，计划 op 没有对应项；记录用，不门控 |
 
@@ -109,11 +110,12 @@
 
 要动桌面，因此要租约，**不是旁路**：
 
-- `hyprscope control baseline --probe` 在请求租约之前先构建测量计划，依据是只读阶段已经测到的事实——活动工作区的名字、布局原点、原本的活动窗口。计划是一份普通的已校验文档：它只通过符号化的 `app`/`title` 选择器 `hyprscope-scratch` 指向探针自己的 `bin/wl-scratch` 窗口，步骤是普通目录 op（`workspace`、`focusWindow`、`movePointer`、`assert`、`chord`、`floatWindow`、`fullscreenWindow`、`moveWindow`、`resizeWindow`），并携带 `requires`/`expect`；
-- 探针随后自己走 `requestLease`（reason「安装验收：能力探测」，`planBound: true` 标明这是一次计划形式的同意，`planSummary` 写明这是验收，TTL 不超过 60 s，`maxResumes` 为 0）。因为测量计划就是一份普通计划，同意卡片展示的是和任何计划卡一样的预览——一句描述加每步一行——只是卡片标题是探针专用的。这张同意卡批准的是"允许探针临时接管桌面做测量"，**不是**批准基线本身；基线要在证据出来之后单独批（§9）；
+- `hyprscope control baseline --probe` 在请求租约之前先构建测量计划，依据是只读阶段已经测到的事实——活动工作区的名字、布局原点、原本的活动窗口。计划是一份普通的已校验文档：它只通过符号化的 `app`/`title` 选择器 `hyprscope-scratch` 指向探针自己的 `bin/wl-scratch` 窗口，步骤是普通目录 op（`workspace`、`focusWindow`、`movePointer`、`assert`、`chord`、`floatWindow`、`fullscreenWindow`、`moveWindow`、`resizeWindow`，外加一个通过 `window` 目标截取测试窗口的 `screenshot` 步骤，`capture.window` 就是这样测的），并携带 `requires`/`expect`；
+- 探针随后自己走 `requestLease`（reason「安装验收：能力探测」，`planBound: true` 标明这是一次计划形式的同意，`planSummary` 写明这是验收，TTL 不超过 60 s，`maxResumes` 为 0）。因为测量计划就是一份普通计划，同意卡片展示的是和任何计划卡一样的预览——一句描述加每步一行——只是卡片标题是探针专用的。这张同意卡批准的是"允许探针临时接管桌面做测量"，**不是**批准基线本身；验收是第二次同意，由同一条命令在证据出来之后展示（§9）；
 - 批准之后探针打开自带的测试窗口（`probe/wl-scratch.c`，产物 `bin/wl-scratch`，由 `pnpm run build:scratch` 编译），等它 map 出来，向它发一次 `SIGUSR1`，让它解除固定的 320×200 尺寸提示（这样 resize 往返才是真的），然后通过 `executePlan` 在内部测量模式下执行测量计划；
 - 声明的前提不成立、dispatcher 被拒绝、或者后置条件读不回来的步骤会被记录下来，执行继续；这些记录就是测量证据，决定受影响能力记成 `unsupported` 还是 `unknown`。只有安全失败会让这次运行停下：租约丢失或被撤销、计划的时间预算、外部对桌面的改动。测量模式从不恢复、从不挂起，也从不弹出干扰询问；
 - `hyprctl dispatch` 没报错只能证明表达式被接受，永远不能证明效果发生了；只有效果读回来，一次 dispatch 才算证据。因此计划声明自己的 `expect` 谓词，窗口 op（`floatWindow`、`fullscreenWindow`、`moveWindow`、`resizeWindow`）只有在 dispatcher 接受调用、状态又读回来时才作数；探针在运行结束后读回测试窗口的几何（move 和 resize 的 dispatch 真的落地了），并读测试窗口自己的 stdout（注入的 `F12` 到了）。这些是观察，不是注入；
+- 运行结束后探针把测量结果与已验收基线比较：只收窄的结果直接写进已验收文件；更宽的结果留下待批准草稿，同一条命令随即向宿主弹出一张仅批准的确认卡，写着结论、能力计数和证据哈希，只有允许才写已验收的基线。拒绝或超时的卡让草稿保持待批准，下一次探针重新询问（[BASELINE.md](/docs/BASELINE.zh.md) §7）；
 - 结束：关掉测试窗口，检查没有残留窗口和进程；
 - 预算 60 s，计划的时间预算耗尽或超时按"未测"处理；产物写 `out/baseline/<probeId>/`：`probe.jsonl`（只读事实、测量计划、每步结果、测试窗口的输出）、`summary.json`（结论草稿）、`capture.png`，以及测量运行自己的产物（计划快照和时间线）。
 
@@ -126,7 +128,7 @@
 
 ### 4.4 没有测试窗口时
 
-只跑只读阶段：`observe.*` 仍然可以 `measured`（纯读），而 `dispatch.lua`、`inject.pointer`、`inject.keyboard`、`events.socket` 需要测量计划和测试窗口，只能拿到 `advertised`、记 `unknown`。只要有 `required` 没达到 `measured`，基线就是 `incomplete`（§5），控制保持关闭。这是有意的严格：宁可不能用，也不要拿没验证过的语义去点用户的界面。
+只跑只读阶段：`observe.*` 仍然可以 `measured`（纯读），而 `dispatch.lua`、`inject.pointer`、`inject.keyboard`、`events.socket`、`capture.window` 需要测量计划和测试窗口，只能拿到 `advertised`、记 `unknown`。只要有 `required` 没达到 `measured`，基线就是 `incomplete`（§5），控制保持关闭。这是有意的严格：宁可不能用，也不要拿没验证过的语义去点用户的界面。
 
 ### 4.5 测量模式只在内部使用
 
@@ -169,7 +171,7 @@ effective(cap) =
 - 配置文件不是推断依据。Lua provider 下它是程序；`hyprlang` 下它仍会 include 其它文件、使用变量。`hyprctl getoption`、`binds` 和 `configerrors` 报告的是真正生效的状态；文件 hash 只是一个便宜的失效触发器。
 - 窗口规则没有查询接口：通配规则是否让测试窗口变成平铺、改尺寸或拒绝聚焦，只能开那个窗口观察。这个观察很便宜（一个窗口、几次读取），留在薄探针里。
 - `doctor` 报告 target、判定、原因和字段差异，并且保持只读；stale 或 unverified 的基线不影响只读观察。
-- 重测陈旧基线走正常的探针/接受流程。对生成的桌面，要先停再启动：运行中的 compositor 还在用旧配置时，探针会被 `DESKTOP_FAILED` 拒绝（`stop and start the desktop before probing it`），重启会带来新签名和新基线条目。收窄仍然自动生效，放宽仍然需要人工接受。
+- 重测陈旧基线走正常的探针流程；放宽已验收基线时，探针会在同一条命令里请宿主验收。对生成的桌面，要先停再启动：运行中的 compositor 还在用旧配置时，探针会被 `DESKTOP_FAILED` 拒绝（`stop and start the desktop before probing it`），重启会带来新签名和新基线条目。收窄仍然自动生效，放宽仍然需要人工接受。
 
 ## 6. 反洗白
 
@@ -186,7 +188,7 @@ effective(cap) =
 - **失效阈值已经定下**：§5.1 逐项精确比对记录的字段，并在记录存在时比对生成的配置哈希；没有编辑次数或 option 白名单。
 - `--accept-advertised` 逃生门（没有测试窗口可跑时，拿未验证的语义去操作）：**不提供**，这是决定。
 - `dispatch.lua` 用测量计划里的工作区往返来测（重新激活探针先读到的那个工作区）。这是接受的：它在验收租约下运行，是对那个工作区的幂等空转，也是证明 Lua provider 会求值表达式的唯一办法。
-- 测试窗口客户端已经存在（`probe/wl-scratch.c`，由 `pnpm run build:scratch` 编译）。没有它，或者用了 `--read-only`，`dispatch.lua`、`inject.pointer`、`inject.keyboard`、`events.socket` 都只能记 `unknown`，控制保持关闭。
+- 测试窗口客户端已经存在（`probe/wl-scratch.c`，由 `pnpm run build:scratch` 编译）。没有它，或者用了 `--read-only`，`dispatch.lua`、`inject.pointer`、`inject.keyboard`、`events.socket`、`capture.window` 都只能记 `unknown`，控制保持关闭。
 - 多显示器、多 seat、分数缩放只作为指纹记录，不改变恢复模型；多 seat 仍按"共享 seat"假设处理，要不要在基线里单独降级待定。
 - 基线粒度：用户桌面保留一份机器级文件；`agent` 或 `external` 桌面按实例签名各有一份（`$XDG_STATE_HOME/hyprscope/desktop/baseline/<signature>.json`），所以对一个桌面的探针永远不会门控另一个。监视器布局变化会记进指纹，但不是比对字段，今天不会让基线失效。
 - 要不要支持"只在某个工作区探测"，避免打断用户当前工作：待定。
@@ -200,7 +202,7 @@ effective(cap) =
 | `src/compat/gate.ts` | 计划级门控、新鲜度门控、`CAPABILITY` 失败、缺失的必需能力列表 |
 | `src/compat/probe.ts` | 探针编排：租约、只读阶段、测试窗口生命周期、通过执行器跑测量计划、指纹、证据、草稿 |
 | `src/compat/probeplan.ts` | 从只读事实构建测量计划；步骤只通过符号选择器指向测试窗口 |
-| `src/lease/baseline.ts` | `--probe` / `--show` / `--accept`、收窄、待批准草稿 |
+| `src/lease/baseline.ts` | `--probe` / `--show`、探针的验收卡、收窄、待批准草稿 |
 | `probe/wl-scratch.c`, `tools/scratch/build.sh` | 测试窗口，产物 `bin/wl-scratch` |
 | `src/plan/model.ts` | 每个谓词和 op 上的 `requires: CapabilityId[]`（仍是代码常量） |
 | `src/plan/run.ts` | 同意卡片之前的门控、运行报告里的基线回执、派生计划复查 |
@@ -218,10 +220,9 @@ effective(cap) =
 pnpm run build:probe && pnpm run build:inject   # compile the probe and the injection helper
 pnpm run build:scratch                          # compile the scratch client the probe measures against
 node bin/hyprscope.ts control install-bind              # failsafe shortcut (optional)
-node bin/hyprscope.ts control baseline --probe          # shows the lease card (allows the probe to measure the desktop temporarily); writes a draft when done
+node bin/hyprscope.ts control baseline --probe          # shows the lease card, measures, and on a widening result asks the host and writes the accepted baseline on Allow
 node bin/hyprscope.ts control baseline --show --diff    # human review: what is supported, what is missing, where the evidence is
-node bin/hyprscope.ts control baseline --accept         # host confirms on a card; writes baseline.json
 node bin/hyprscope.ts control run plan.json             # normal use afterwards
 ```
 
-`--probe` 只写草稿；`--accept` 是人的动作，在桌面上用确认卡完成，不需要终端命令。之后重新探测时，只收窄有效集的会自己生效并追加一条 revision；任何放宽——包括某个有效能力的证据从 `advertised` 提升到 `measured`——都会变回草稿，需要重新验收。验收之后，`doctor` 和每次运行的回执都会带上基线状态（state、批准时间、compositor 版本、缺失的降级项），这样换机器时不会悄悄带着一套旧前提继续跑。
+`--probe` 就是完整的人工流程：只收窄有效集的结果自己生效并追加一条 revision；任何放宽——包括某个有效能力的证据从 `advertised` 提升到 `measured`——都会留下草稿，并由同一条命令弹出确认卡，只有宿主点允许才写已验收的基线。拒绝或超时的卡让草稿保持待批准，重跑探针会再问一次。验收之后，`doctor` 和每次运行的回执都会带上基线状态（state、批准时间、compositor 版本、缺失的降级项），这样换机器时不会悄悄带着一套旧前提继续跑。

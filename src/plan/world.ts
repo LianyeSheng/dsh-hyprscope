@@ -9,6 +9,7 @@
 import { ErrorCode, HyprscopeError } from '../errors.ts'
 import { hyprctlJson } from '../hyprctl.ts'
 import { capture, type CaptureResult } from '../screenshot.ts'
+import { captureToplevel } from '../toplevel.ts'
 import { normalizeClient, normalizeMonitor } from '../state.ts'
 import { dispatchWithLease, type DispatchRequest } from '../control/dispatch.ts'
 import { Injector, type InjectCommand } from '../inject/injector.ts'
@@ -30,6 +31,7 @@ export interface World {
   dispatch(request: DispatchRequest): Promise<void>
   inject(commands: InjectCommand[]): Promise<void>
   capture(request: CaptureRequest): Promise<CaptureResult>
+  captureWindow(request: { output: string; identifier: string }): Promise<CaptureResult>
   now(): number
   close(): Promise<void>
 }
@@ -172,6 +174,15 @@ export class LiveWorld implements World {
    */
   async capture(request: CaptureRequest): Promise<CaptureResult> {
     return capture(this.#session, { output: request.output, region: request.region })
+  }
+
+  /**
+   * Capture one foreign toplevel, even when it is hidden or covered.
+   * @param request Destination and foreign-toplevel identifier.
+   * @returns Capture metadata, with `source.scope` set to `window`.
+   */
+  async captureWindow(request: { output: string; identifier: string }): Promise<CaptureResult> {
+    return captureToplevel(this.#session, { output: request.output, identifier: request.identifier })
   }
 
   /** Stop the tap and the injector. */

@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Readable } from 'node:stream'
 import { ErrorCode, HyprscopeError } from '../errors.ts'
+import { resolveLanguage } from '../i18n.ts'
 import { readBaseline } from '../compat/baseline.ts'
 import { assertControlAvailable, assertFreshBaseline } from '../compat/gate.ts'
 import { compareEffective, measureEffective } from '../compat/staleness.ts'
@@ -13,9 +14,8 @@ import type { DesktopTarget, ResolvedTarget } from '../desktop/types.ts'
 import type { DesktopStatusReport } from '../desktop/lifecycle.ts'
 import { installBind, uninstallBind } from './bind.ts'
 import {
-  DEFAULT_CONSENT_MS, DEFAULT_TTL_MS, grantLease, holdLease, leaseStatus, releaseLease, requestLease, submitDecision,
+  DEFAULT_CONSENT_MS, DEFAULT_TTL_MS, grantLease, holdLease, leaseStatus, releaseLease, requestLease,
 } from './control.ts'
-import { leasePaths, readInterference, writeInterferenceDecision } from './state.ts'
 import { PLAN_LIMITS } from '../plan/model.ts'
 
 const VERSION = (JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as { version: string }).version
@@ -32,10 +32,8 @@ Commands:
   panic            Release control immediately (used by the failsafe shortcut)
   install-bind     Install the SUPER + ALT + ESC failsafe into the Hyprland config
   uninstall-bind   Remove the failsafe bind and its generated Lua file
-  baseline         Measure this machine's capabilities, then review and accept them
+  baseline         Measure this machine's capabilities and ask the host to accept them
   desktop          Start, attach, inspect, or stop an agent-dedicated desktop
-  __control        Internal: record allow/deny from the overlay
-  __interference   Internal: record continue/abort for a blocking interference prompt
   __hold           Internal: detached holder that keeps the lease until it ends
 
 Options:
@@ -45,15 +43,14 @@ Options:
   --consent <secs>  How long the consent card waits (default 45)
   --key <combo>     Failsafe key for install-bind (default "SUPER + ALT + ESC")
   --lease <id>      Lease id for __hold
-  --id <prompt>     Interference prompt id for __interference
   --source <name>   Origin recorded in the lease (default: agent or host)
   --max-resumes <n> Recovery attempts one run may use (default 1, max 3)
   --dry-run         Validate the plan without asking
   --size <WxH>      desktop start: requested output size (default: parent window)
   --consent-source  desktop start/attach: chat (default) or card
-  --probe           baseline: measure and write a draft (asks for the lease first)
+  --lang <zh|en>    Language of the consent card and overlay (default: zh)
+  --probe           baseline: measure, then ask the host to accept a widening result
   --show            baseline: print the accepted baseline and any pending draft
-  --accept          baseline: accept the pending draft after a confirmation card
   --diff            baseline --show: compare the pending draft with the accepted one
   --read-only       baseline --probe: measure without dispatching or injecting
   --json            Machine-readable output
@@ -71,18 +68,17 @@ export interface LeaseCliOptions {
   consentSec?: number
   key?: string
   lease?: string
-  id?: string
   source?: string
   desktop?: string
   runtimeDir?: string
   signature?: string
   size?: string
   consentSource?: string
+  lang?: string
   dryRun?: boolean
   maxResumes?: number
   probe?: boolean
   show?: boolean
-  accept?: boolean
   diff?: boolean
   readOnly?: boolean
 }
@@ -140,12 +136,13 @@ async function readPlanInput(io: Io): Promise<string> {
 
 const VALUE_OPTIONS: Record<string, keyof LeaseCliOptions> = {
   '--reason': 'reason', '--ttl': 'ttlSec', '--consent': 'consentSec', '--key': 'key', '--lease': 'lease',
-  '--id': 'id', '--source': 'source', '--max-resumes': 'maxResumes', '--desktop': 'desktop',
+  '--source': 'source', '--max-resumes': 'maxResumes', '--desktop': 'desktop',
   '--runtime-dir': 'runtimeDir', '--signature': 'signature', '--size': 'size', '--consent-source': 'consentSource',
+  '--lang': 'lang',
 }
 const FLAG_OPTIONS: Record<string, keyof LeaseCliOptions> = {
   '--json': 'json', '--help': 'help', '--version': 'version', '--dry-run': 'dryRun',
-  '--probe': 'probe', '--show': 'show', '--accept': 'accept', '--diff': 'diff', '--read-only': 'readOnly',
+  '--probe': 'probe', '--show': 'show', '--diff': 'diff', '--read-only': 'readOnly',
 }
 
 /**
@@ -365,6 +362,7 @@ export async function main(argv: string[], io: Io = { stdout: process.stdout, st
             reason: options.reason,
             ttlMs,
             consentMs: (options.consentSec ?? DEFAULT_CONSENT_MS / 1000) * 1000,
+            lang: resolveLanguage(options.lang),
           })
           : await grantLease({ reason: options.reason, ttlMs, env: resolved.env, source: 'desktop' })
         const granted = outcome.allowed && outcome.phase === 'granted'
@@ -410,6 +408,7 @@ export async function main(argv: string[], io: Io = { stdout: process.stdout, st
           desktop: targetOf(options),
           consentMs: options.consentSec === undefined ? undefined : options.consentSec * 1000,
           maxResumes: options.maxResumes,
+          lang: resolveLanguage(options.lang),
         })
         print(io, result, options.json, value => {
           const resumed = value.attempts.length > 1 ? ` · ${value.attempts.length - 1} recovery attempt${value.attempts.length > 2 ? 's' : ''}` : ''
@@ -459,16 +458,15 @@ export async function main(argv: string[], io: Io = { stdout: process.stdout, st
         return 0
       }
       case 'baseline': {
-        const actions = [options.probe === true, options.show === true, options.accept === true]
-          .filter(Boolean).length
-        if (actions > 1) throw usage('baseline takes only one of --probe, --show, or --accept')
-        const action = options.accept === true ? 'accept' : options.probe === true ? 'probe' : 'show'
+        if (options.probe === true && options.show === true) throw usage('baseline takes only one of --probe or --show')
+        const action = options.probe === true ? 'probe' : 'show'
         if (options.diff === true && action !== 'show') throw usage('--diff is only valid with --show')
         if (options.readOnly === true && action !== 'probe') throw usage('--read-only is only valid with --probe')
         const {
-          acceptBaseline, probeBaseline, renderBaselineAccept, renderBaselineProbe, renderBaselineShow, showBaseline,
+          acceptBaseline, probeBaseline, renderBaselineProbe, renderBaselineShow, showBaseline,
         } = await import('./baseline.ts')
         const target = targetOf(options)
+        const lang = resolveLanguage(options.lang)
         if (action === 'probe') {
           const resolved = await resolveFor(options, target)
           const liveHash = await liveConfigHash(resolved)
@@ -493,7 +491,7 @@ export async function main(argv: string[], io: Io = { stdout: process.stdout, st
           const probeEnv = target === 'agent' && resolved.desktop !== null
             ? { ...resolved.env, HYPR_CONFIG_DIR: join(resolved.desktop.configDir, 'hypr') }
             : resolved.env
-          const report = await probeBaseline({
+          let report = await probeBaseline({
             consentMs: options.consentSec === undefined ? undefined : options.consentSec * 1000,
             readOnly: options.readOnly === true,
             signature: resolved.baselineSignature,
@@ -502,19 +500,43 @@ export async function main(argv: string[], io: Io = { stdout: process.stdout, st
             configHash: liveHash,
             consent: target === 'user' ? 'card' : 'programmatic',
             env: probeEnv,
+            lang,
           })
+          // A widening result is this command's request: the same process shows
+          // the host's confirmation card and continues with the answer, so no
+          // separate CLI entry can accept a draft on the host's behalf.
+          if (report.applied === 'pending') {
+            try {
+              const accepted = await acceptBaseline({
+                signature: resolved.baselineSignature,
+                target,
+                lang,
+                consentMs: options.consentSec === undefined ? undefined : options.consentSec * 1000,
+              })
+              report = {
+                ...report,
+                applied: 'accepted',
+                path: accepted.path,
+                state: accepted.state,
+                accept: accepted,
+                confirmation: { approved: true, phase: 'released', source: accepted.source },
+              }
+            } catch (error) {
+              if (!(error instanceof HyprscopeError) || error.code !== ErrorCode.DENIED) throw error
+              report = {
+                ...report,
+                confirmation: {
+                  approved: false,
+                  phase: typeof error.details.phase === 'string' ? error.details.phase : 'denied',
+                  source: typeof error.details.source === 'string' ? error.details.source : 'overlay',
+                },
+              }
+            }
+          }
           print(io, report, options.json, renderBaselineProbe)
           return 0
         }
         const recorded = await recordedTarget(target)
-        if (action === 'accept') {
-          print(io, await acceptBaseline({
-            signature: recorded.signature,
-            target,
-            consentMs: options.consentSec === undefined ? undefined : options.consentSec * 1000,
-          }), options.json, renderBaselineAccept)
-          return 0
-        }
         print(io, await showBaseline({ signature: recorded.signature, target, diff: options.diff === true }),
           options.json, renderBaselineShow)
         return 0
@@ -558,51 +580,6 @@ export async function main(argv: string[], io: Io = { stdout: process.stdout, st
           return 0
         }
         throw usage('desktop expects start, attach, status, or stop')
-      }
-      case '__control': {
-        const action = parsed.args[0]
-        if (action !== 'allow' && action !== 'deny' && action !== 'panic') {
-          throw usage('__control expects allow, deny, or panic')
-        }
-        // Default to `cli` so a decision written outside the card is visible in
-        // the audit trail; the overlay passes `--source overlay` explicitly.
-        const outcome = await submitDecision({ action, source: options.source ?? 'cli' })
-        print(io, outcome, options.json, value => `${value.action}: ${value.ok ? 'recorded' : 'no consent pending'}`)
-        return outcome.ok ? 0 : 1
-      }
-      case '__interference': {
-        const decision = parsed.args[0]
-        if (decision !== 'continue' && decision !== 'abort') {
-          throw usage('__interference expects continue or abort')
-        }
-        if (options.id === undefined || options.id.trim() === '') {
-          throw usage('__interference requires --id <prompt>')
-        }
-        const paths = leasePaths()
-        const pending = await readInterference(paths)
-        if (pending === null) {
-          throw new HyprscopeError(ErrorCode.NO_LEASE, 'No interference prompt is pending')
-        }
-        if (pending.id !== options.id) {
-          throw new HyprscopeError(ErrorCode.LEASE_MISMATCH, 'The interference prompt changed', {
-            expected: options.id, observed: pending.id,
-          })
-        }
-        const deadline = Date.parse(pending.expiresAt)
-        if (!Number.isFinite(deadline) || Date.now() >= deadline) {
-          throw new HyprscopeError(ErrorCode.TIMEOUT, 'The interference prompt has already expired', {
-            id: pending.id, expiresAt: pending.expiresAt,
-          })
-        }
-        // The executor reads this record and clears the prompt; the overlay hides
-        // its card optimistically, so a stale prompt must never be answered twice.
-        const record = {
-          id: pending.id, decision, at: new Date().toISOString(), source: options.source ?? 'cli',
-        } as const
-        await writeInterferenceDecision(paths, record)
-        print(io, { ok: true, id: record.id, decision: record.decision }, options.json,
-          value => `${value.decision}: recorded for ${value.id}`)
-        return 0
       }
       case '__hold': {
         if (options.lease === undefined) throw usage('__hold requires --lease <id>')

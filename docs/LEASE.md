@@ -42,7 +42,7 @@ For the user's desktop the state directory is `$XDG_STATE_HOME/hyprlease` (defau
 | `notice.json` | Short-lived notices published by the executor; the overlay shows one only while the `leaseId` matches and it has not expired, and at the start of a recovery it says "recovery N: …" |
 | `progress.json` | Execution progress published step by step by the executor: `step`/`total`/`op`, `status`, `attempt`, `maxResumes`, `phase`; a derived attempt is `recovering` throughout, and the overlay renders the banner and receipt from it |
 | `interference.json` | The blocking interference prompt published by the executor: id, step k/n, every broken premise, the recovery count, the extra budget, the deadline |
-| `interference-decision.json` | `continue` / `abort` written by the overlay button or by `__interference`, which must echo the prompt's `id` |
+| `interference-decision.json` | `continue` / `abort` written directly by the overlay button, which must echo the prompt's `id` |
 | `overlay.log` | The stderr of the Quickshell overlay |
 
 State files all carry a `leaseId` check: a leftover `done` record from an old lease does not end a new lease (covered by a regression test). Each `request` also clears the previous round's decision/control/heartbeat at start.
@@ -75,7 +75,7 @@ Renewal does not reopen the consent flow: what the host approves is the plan plu
 
 ### One consent card
 
-There is one consent card, `card: { title, lines[], acceptLabel, denyLabel }`, and one request path, `requestLease`. A plan lease fills it with the plan's description and steps; an approval-only request fills it with the facts of an act that changes no desktop state (today: `baseline --accept`). The overlay renders the same card for both, and both answers travel through the same `decision.json`.
+There is one consent card, `card: { title, lines[], acceptLabel, denyLabel }`, and one request path, `requestLease`. A plan lease fills it with the plan's description and steps; an approval-only request fills it with the facts of an act that changes no desktop state (today: the capability-baseline acceptance that a widening `baseline --probe` shows). The card is rendered in the language selected by `--lang <zh|en>`. The overlay renders the same card for both, and both answers travel through the same `decision.json`: the button writes its answer directly and the waiting process records the decision and continues, with no CLI command spawned for the click.
 
 `approvalOnly: true` is the mode difference: the state keeps `ttlMs: 0` and `planBound: false`, the record ends `released` on `allow` (or `denied` / `expired` otherwise), never enters `granted`, starts no holder and grants no TTL, so the executor and `wl-inject` can never inject under it (`phase=granted` and `planBound: true` are both required). `grantedBy` still names who answered: `overlay` for the card, `desktop` for a managed desktop's programmatic consent.
 
@@ -94,7 +94,7 @@ When a recoverable premise is broken, the executor first writes `interference.js
 | `at` / `expiresAt` | Publish time and answer deadline; when `run` reaches the deadline it treats the answer as `abort` |
 | `broken[]` | Every broken premise: `{ kind, detail, expected, observed }` |
 
-The answer is written to `interference-decision.json`: `{ id, decision: "continue" | "abort", at, source }`. `hyprscope control __interference <continue|abort> --id <prompt>` first checks that the prompt still exists, that the `id` matches and that it has not expired, then writes atomically; the executor accepts only an answer with a matching `id`, and clears the prompt and the answer once it reads it. The overlay card, the countdown and the "Continue execution / Terminate operation" rendering are in `overlay/shell.qml`; the run semantics are in the next section.
+The answer is written to `interference-decision.json`: `{ id, decision: "continue" | "abort", at, source }`. The overlay writes it directly when the host picks a button; the waiting process checks that the prompt still exists, that the `id` matches and that it has not expired, and the executor accepts only an answer with a matching `id`, clearing the prompt and the answer once it reads it. The overlay card, the countdown and the "Continue execution / Terminate operation" rendering are in `overlay/shell.qml`; the run semantics are in the next section.
 
 `interferencePromptMs` constrains only this one wait; the wait does not consume the plan budget but does consume the lease TTL, which is why each attempt's TTL includes 20000ms of margin. If the lease is revoked during the wait, the run ends as `revoked`.
 
@@ -104,21 +104,21 @@ Inside an agent or external desktop there is no overlay and therefore no prompt:
 
 ```
 hyprscope control run <plan.json> [--consent 45] [--max-resumes 1] [--dry-run] [--json]   # approve and execute a plan
-hyprscope control __interference <continue|abort> --id <prompt> [--source overlay]  # answer an interference prompt
 hyprscope control request --reason <text> [--ttl 120] [--consent 45] [--json]
 hyprscope control status [--json]       # phase, remaining time, holder/overlay pid, stale, recovery progress
 hyprscope control done [--json]         # the agent hands control back
 hyprscope control panic [--json]        # the host takes control back immediately (this is what the shortcut runs)
 hyprscope control install-bind [--key "SUPER + ALT + ESC"]
 hyprscope control uninstall-bind
-hyprscope control baseline --probe [--read-only] [--json]   # measure this machine, write a draft
+hyprscope control baseline --probe [--read-only] [--json]   # measure this machine; a widening result asks the host and writes the accepted baseline on Allow
 hyprscope control baseline --show [--diff] [--json]         # review the accepted baseline and any draft
-hyprscope control baseline --accept [--json]                # the host confirms the draft on a card; control is gated by it
 hyprscope control desktop start [--size WxH] [--consent-source chat|card] [--json]
 hyprscope control desktop attach --runtime-dir <dir> [--signature <sig>] [--consent-source chat|card] [--json]
 hyprscope control desktop status [--json]
 hyprscope control desktop stop [--json]
 ```
+
+Every `hyprscope control ...` command also accepts `--lang <zh|en>`: it selects the language of the consent or confirmation card and of the overlay it spawns. Omitted means the `HYPRSCOPE_LANG` environment value, else `zh`; an unsupported value is a usage error. The card content (plan preview lines, baseline confirmation lines, the reason and the recovery notices) and the overlay's own chrome follow it, while CLI stdout stays English.
 
 `--desktop user|agent|external` selects the desktop that `run`, `request`, `status`, `done`, `panic` and `baseline` address; omitted means `user`. `request`, `status`, `done` and `panic` operate on that desktop's per-signature lease, so `done` must name the desktop that holds it.
 
@@ -126,7 +126,7 @@ hyprscope control desktop stop [--json]
 
 `--max-resumes` takes `0..3` (default `1`) and is the recovery count the consent card covers: `0` means the first recoverable interference faults directly without showing the prompt card. `--dry-run` prints this allowance too. `--consent` applies to both `run` and `request`; `--ttl` affects only `request`, while each attempt's TTL for `run` is the plan's `budgetMs` plus 20000ms of margin.
 
-Exit codes: `request` exits 0 when consented and 1 when denied or timed out; invalid arguments exit 2. `__control` and `__hold` are internal commands used by the overlay and the background holder, and are not exposed to callers.
+Exit codes: `request` exits 0 when consented and 1 when denied or timed out; invalid arguments exit 2. `__hold` is an internal command used by the background holder and is not exposed to callers.
 
 `install-bind` appends a marked `hl.bind(...)` block to `~/.config/hypr/hyprland.lua`, first makes a timestamped backup, then runs `hyprctl reload`, then confirms through the `description` field of `hyprctl binds -j` that the binding really took effect; if it did not, it rolls back the configuration and reports `BIND_FAILED`. `uninstall-bind` removes the block and reloads. Both the new `hyprscope` marker and the historical `hyprlease` marker are accepted when replacing or uninstalling; a bind installed before the CLI merge points at the deleted `bin/hyprlease.ts` and has to be reinstalled.
 

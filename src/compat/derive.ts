@@ -40,6 +40,7 @@ export const MEASURE_CAPABILITIES: readonly CapabilityId[] = [
   'inject.pointer',
   'inject.keyboard',
   'events.socket',
+  'capture.window',
 ]
 
 /** What the probe observed outside the plan. */
@@ -108,6 +109,8 @@ function expectedForStep(step: PlanStep): unknown {
       return { x: step.x ?? null, y: step.y ?? null }
     case 'resizeWindow':
       return { width: step.width ?? null, height: step.height ?? null }
+    case 'screenshot':
+      return { window: step.window ?? null, region: step.region ?? null }
     case 'assert':
       return { asserted: (step.requires ?? []).map(predicate => predicate.kind) }
     default:

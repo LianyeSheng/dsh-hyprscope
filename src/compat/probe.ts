@@ -45,6 +45,7 @@ import { BIND_DESCRIPTION, DEFAULT_PANIC_KEY, hyprConfigDir, type BindRecord } f
 import { grantLease, releaseLease, requestLease } from '../lease/control.ts'
 import { leasePaths } from '../lease/state.ts'
 import { readLockState } from '../lock.ts'
+import { tr, type RenderLanguage } from '../i18n.ts'
 import { describePlanCard } from '../plan/card.ts'
 import { executePlan, type MeasureStepFact } from '../plan/executor.ts'
 import { assertPlanGrant, requirePlanGrant, type PlanGrant } from '../plan/leasegate.ts'
@@ -63,7 +64,7 @@ const run = promisify(execFile)
 export const PROBE_SCRIPT = 'hyprscope-probe/2'
 
 /** Reason shown on the lease card. */
-const PROBE_REASON = 'installation acceptance: capability probe'
+const PROBE_REASON = { zh: '安装验收：能力探测', en: 'installation acceptance: capability probe' } as const
 
 /** Longest the probe may hold control, in milliseconds. */
 const PROBE_TTL_MS = 60_000
@@ -117,6 +118,8 @@ export interface ProbeOptions {
    * consent already covers work inside it; the caller must have verified that.
    */
   consent?: 'card' | 'programmatic'
+  /** Language of the consent card and the measurement plan's description; defaults to Chinese. */
+  lang?: RenderLanguage
 }
 
 /** What one probe measured and where the raw evidence is. */
@@ -921,23 +924,24 @@ export async function runProbe(options: ProbeOptions = {}): Promise<ProbeOutcome
   const session = options.session ?? discoverSession({ env })
   // The measure plan is built before the card so the card shows exactly what the
   // probe will submit; the facts it needs are read-only.
-  const plan = behavioral ? buildProbePlan(await probePlanFacts(session)) : null
+  const lang: RenderLanguage = options.lang ?? 'zh'
+  const plan = behavioral ? buildProbePlan({ ...(await probePlanFacts(session)), lang }) : null
   const ttlMs = plan === null
     ? Math.max(1_000, Math.min(options.ttlMs ?? PROBE_TTL_MS, PROBE_TTL_MS))
     : Math.max(1_000, Math.min(plan.plan.budgetMs + PROBE_PLAN_TTL_MARGIN_MS, PROBE_TTL_MS))
   const request = {
-    reason: PROBE_REASON,
+    reason: PROBE_REASON[lang],
     planBound: true,
     planSummary: plan === null
-      ? { steps: 0, ops: [], workspace: null, summary: 'capability probe' }
+      ? { steps: 0, ops: [], workspace: null, summary: tr(lang, '能力探测', 'capability probe') }
       : summarizePlan(plan.plan),
     // The probe submits a plan, so it shows the same consent card as any plan.
-    card: plan === null ? null : describePlanCard(plan.plan),
+    card: plan === null ? null : describePlanCard(plan.plan, { lang }),
     ttlMs,
   }
   const consent = options.consent === 'programmatic'
     ? await grantLease({ ...request, env, source: 'desktop' })
-    : await requestLease({ ...request, consentMs: options.consentMs, maxResumes: 0, env })
+    : await requestLease({ ...request, consentMs: options.consentMs, maxResumes: 0, env, lang })
   if (!consent.allowed) {
     throw new HyprscopeError(ErrorCode.DENIED, `The host did not allow the probe to measure the desktop (${consent.reason})`, {
       leaseId: consent.leaseId, phase: consent.phase,

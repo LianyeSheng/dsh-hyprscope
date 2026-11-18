@@ -11,11 +11,15 @@
   "scripts": {
     "test": "node --test test/*.test.ts plugins/dsh-hyprscope/test/*.test.js",
     "check": "PYTHONDONTWRITEBYTECODE=1 python3 .agents/se/scripts/docs/verify_translation_pairing.py && pnpm run typecheck && pnpm test",
+    "check:consistency": "node scripts/check-consistency.ts",
+    "ci:local": "bash scripts/ci-local.sh",
+    "hooks:install": "bash scripts/install-git-hooks.sh",
     "doctor": "node ./bin/hyprscope.ts doctor",
     "build:probe": "gcc -O2 -o bin/wl-globals probe/wl-globals.c $(pkg-config --cflags --libs wayland-client)",
     "typecheck": "tsc --noEmit",
     "build:inject": "bash tools/inject/build.sh",
-    "build:scratch": "bash tools/scratch/build.sh"
+    "build:scratch": "bash tools/scratch/build.sh",
+    "build:capture": "bash tools/capture/build.sh"
   },
   "engines": {
     "node": ">=22"

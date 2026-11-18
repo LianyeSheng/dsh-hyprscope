@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { deriveMeasureEntries, KEY_F12_EVDEV, MEASURE_CAPABILITIES, type MeasureObservations } from '../src/compat/derive.ts'
-import { buildProbePlan, type ProbePlan } from '../src/compat/probeplan.ts'
+import { buildProbePlan, PROBE_WINDOW, type ProbePlan } from '../src/compat/probeplan.ts'
 import { CAPABILITY_SPECS } from '../src/compat/catalog.ts'
 import type { CapabilityCheck, CapabilityEntry, CapabilityId } from '../src/compat/types.ts'
 import type { MeasureStepFact, MeasureStage } from '../src/plan/executor.ts'
@@ -153,6 +153,9 @@ test('a healthy measure run marks every measured capability supported with measu
   assert.deepEqual(move.observed, { x: 0, y: 0 })
   const resize = entryOf(entries, 'dispatch.window.resize').checks[0]!
   assert.deepEqual(resize.expected, { width: 360, height: 240 })
+  const windowCapture = entryOf(entries, 'capture.window').checks[0]!
+  assert.equal(windowCapture.name, 'window-capture')
+  assert.deepEqual(windowCapture.expected, { window: PROBE_WINDOW, region: null })
   // observe.geometry combines the framework check with both read-backs.
   const geometryNames = entryOf(entries, 'observe.geometry').checks.map(check => check.name)
   assert.ok(geometryNames.includes('client-geometry'))
@@ -176,6 +179,25 @@ test('a rejected dispatch is a measured failure, not a missing measurement', () 
     assert.match(entry.detail ?? '', /dispatch workspace failed/)
   }
   assert.ok(warnings.some(warning => warning.startsWith('dispatch.lua: dispatch workspace failed')))
+})
+
+test('a window capture the compositor refuses is a measured unsupported capability', () => {
+  const plan = buildProbePlan(INPUT)
+  const captureStep = stepsOf(plan, 'capture.window', 'window-capture')[0]!
+  const { entries, warnings } = derive({
+    [captureStep]: fact(captureStep, 'screenshot', {
+      stage: 'commit',
+      violation: {
+        kind: 'postcondition', detail: 'the compositor could not capture this window',
+        expected: 'a PNG of the window', observed: null,
+      },
+    }),
+  })
+  const entry = entryOf(entries, 'capture.window')
+  assert.equal(entry.status, 'unsupported')
+  assert.equal(entry.evidence, 'measured')
+  assert.match(entry.detail ?? '', /could not capture this window/)
+  assert.ok(warnings.some(warning => warning.startsWith('capture.window:')))
 })
 
 test('a broken premise is not evidence against the machine: it falls back to advertised or unknown', () => {

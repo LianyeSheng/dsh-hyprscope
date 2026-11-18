@@ -42,7 +42,7 @@ host:    SUPER + ALT + ESC          # or press this key at any time to interrupt
 | `notice.json` | 执行器发布的短暂提示；浮层只在 `leaseId` 匹配且未过期时显示，恢复开始时是「第 N 次恢复：…」 |
 | `progress.json` | 执行器逐步发布的执行进度：`step`/`total`/`op`、`status`、`attempt`、`maxResumes`、`phase`；派生尝试全程是 `recovering`，浮层据此渲染横幅和回执 |
 | `interference.json` | 执行器发布的阻塞式干扰询问：id、第 k/n 步、全部被打破前提、恢复次数、追加预算、截止时间 |
-| `interference-decision.json` | 浮层按钮或 `__interference` 写入的 `continue` / `abort`，必须回带询问的 `id` |
+| `interference-decision.json` | 浮层按钮直接写入的 `continue` / `abort`，必须回带询问的 `id` |
 | `overlay.log` | Quickshell 浮层的 stderr |
 
 状态文件都带 `leaseId` 校验：旧租约残留的 `done` 记录不会结束新租约（有回归测试覆盖）。每次 `request` 开始时也会清掉上一轮的 decision/control/heartbeat。
@@ -75,7 +75,7 @@ host:    SUPER + ALT + ESC          # or press this key at any time to interrupt
 
 ### 同一种同意卡
 
-同意卡只有一种：`card: { title, lines[], acceptLabel, denyLabel }`；申请路径也只有一个：`requestLease`。计划租约用它装计划的描述与步骤；仅批准请求用它装一件不改变桌面状态的行动的事实（目前是 `baseline --accept`）。浮层对两者渲染同一张卡，答案都走同一个 `decision.json`。
+同意卡只有一种：`card: { title, lines[], acceptLabel, denyLabel }`；申请路径也只有一个：`requestLease`。计划租约用它装计划的描述与步骤；仅批准请求用它装一件不改变桌面状态的行动的事实（目前是放宽的 `baseline --probe` 展示的能力基线验收卡）。卡片按 `--lang <zh|en>` 选择的语言渲染。浮层对两者渲染同一张卡，答案都走同一个 `decision.json`：按钮直接写入回答，等待中的进程记录决定并继续，这一下点击不启动任何 CLI 命令。
 
 模式差异用 `approvalOnly: true` 表示：state 保持 `ttlMs: 0` 和 `planBound: false`，记录在 `allow` 时以 `released` 结束（否则是 `denied` / `expired`），永远不会进入 `granted`，不启动 holder，也不授予任何 TTL，所以执行器和 `wl-inject` 都不可能凭它注入（两者都要求 `phase=granted` 且 `planBound: true`）。`grantedBy` 仍记录是谁回答的：点卡是 `overlay`，受管桌面的程序化同意是 `desktop`。
 
@@ -94,7 +94,7 @@ host:    SUPER + ALT + ESC          # or press this key at any time to interrupt
 | `at` / `expiresAt` | 发布时刻与回答截止；`run` 到点按 `abort` 处理 |
 | `broken[]` | 全部被打破前提：`{ kind, detail, expected, observed }` |
 
-回答写在 `interference-decision.json`：`{ id, decision: "continue" | "abort", at, source }`。`hyprscope control __interference <continue|abort> --id <prompt>` 会先校验询问仍在、`id` 一致、未过期，再原子写入；执行器只认 `id` 匹配的回答，读到后清掉询问与回答。浮层卡片、倒计时和「继续执行 / 终止操作」的渲染在 `overlay/shell.qml`，运行语义见下一节。
+回答写在 `interference-decision.json`：`{ id, decision: "continue" | "abort", at, source }`。宿主点按钮时由浮层直接写入；等待中的进程会校验询问仍在、`id` 一致、未过期，执行器只认 `id` 匹配的回答，读到后清掉询问与回答。浮层卡片、倒计时和「继续执行 / 终止操作」的渲染在 `overlay/shell.qml`，运行语义见下一节。
 
 `interferencePromptMs` 只约束这一次等待；等待不占计划预算，但占租约 TTL，所以每次尝试的 TTL 里带了 20000ms 余量。等待期间租约被收回时，运行按 `revoked` 结束。
 
@@ -104,21 +104,21 @@ agent 或 external 桌面里没有浮层，也就没有询问：可恢复的冲�
 
 ```
 hyprscope control run <plan.json> [--consent 45] [--max-resumes 1] [--dry-run] [--json]   # approve and execute a plan
-hyprscope control __interference <continue|abort> --id <prompt> [--source overlay]  # answer an interference prompt
 hyprscope control request --reason <text> [--ttl 120] [--consent 45] [--json]
 hyprscope control status [--json]       # phase, remaining time, holder/overlay pid, stale, recovery progress
 hyprscope control done [--json]         # the agent hands control back
 hyprscope control panic [--json]        # the host takes control back immediately (this is what the shortcut runs)
 hyprscope control install-bind [--key "SUPER + ALT + ESC"]
 hyprscope control uninstall-bind
-hyprscope control baseline --probe [--read-only] [--json]   # measure this machine, write a draft
+hyprscope control baseline --probe [--read-only] [--json]   # measure this machine; a widening result asks the host and writes the accepted baseline on Allow
 hyprscope control baseline --show [--diff] [--json]         # review the accepted baseline and any draft
-hyprscope control baseline --accept [--json]                # the host confirms the draft on a card; control is gated by it
 hyprscope control desktop start [--size WxH] [--consent-source chat|card] [--json]
 hyprscope control desktop attach --runtime-dir <dir> [--signature <sig>] [--consent-source chat|card] [--json]
 hyprscope control desktop status [--json]
 hyprscope control desktop stop [--json]
 ```
+
+每个 `hyprscope control ...` 命令还接受 `--lang <zh|en>`：它选择同意卡或确认卡、以及它启动的浮层的语言。省略时取 `HYPRSCOPE_LANG` 环境变量，再否则 `zh`；不支持的值按用法错误处理。卡片内容（计划预览行、基线确认行、原因与恢复提示）和浮层外观都跟随它，CLI 的 stdout 仍是英文。
 
 `--desktop user|agent|external` 选择 `run`、`request`、`status`、`done`、`panic` 和 `baseline` 作用的桌面；省略即 `user`。`request`、`status`、`done`、`panic` 操作的是该桌面按签名区分的租约，所以 `done` 必须指向持有租约的那个桌面。
 
@@ -126,7 +126,7 @@ hyprscope control desktop stop [--json]
 
 `--max-resumes` 取 `0..3`（默认 `1`），是同意卡覆盖的恢复次数：`0` 表示第一次遇到可恢复干扰就直接 fault，不再弹询问卡。`--dry-run` 会顺带打印这项额度。`--consent` 对 `run` 与 `request` 都有效；`--ttl` 只影响 `request`，`run` 每次尝试的 TTL 由计划 `budgetMs` 加 20000ms 余量决定。
 
-退出码：`request` 被同意为 0，被拒绝/超时为 1，参数错误为 2。`__control` 和 `__hold` 是浮层与后台 holder 用的内部命令，不面向上层调用方。
+退出码：`request` 被同意为 0，被拒绝/超时为 1，参数错误为 2。`__hold` 是后台 holder 用的内部命令，不面向上层调用方。
 
 `install-bind` 会往 `~/.config/hypr/hyprland.lua` 追加一段带标记的 `hl.bind(...)`，先生成带时间戳的备份，然后 `hyprctl reload`，再通过 `hyprctl binds -j` 的 `description` 字段确认绑定真的生效；没生效会回滚配置并报 `BIND_FAILED`。`uninstall-bind` 删除这一段并重新加载。替换或卸载时同时接受新的 `hyprscope` 标记和历史 `hyprlease` 标记；CLI 合并之前安装的 bind 指向已删除的 `bin/hyprlease.ts`，需要重装。
 

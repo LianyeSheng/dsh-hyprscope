@@ -96,6 +96,11 @@ export const CAPABILITY_SPECS: Readonly<Record<CapabilityId, CapabilitySpec>> = 
     detection: 'a region capture returns a PNG of the requested geometry',
     consequence: 'the screenshot op and the region.unchanged and region.changed predicates are unavailable',
   },
+  'capture.window': {
+    level: 'optional',
+    detection: 'capturing one foreign toplevel through ext-image-copy-capture returns a PNG of the probe scratch window',
+    consequence: 'the screenshot step with a window target is unavailable; region captures still work',
+  },
   'observe.lock': {
     level: 'optional',
     detection: 'the session lock field is reported by status when the lock file is readable',
@@ -150,6 +155,7 @@ export function predicateCapabilities(predicate: Predicate): readonly Capability
  * @returns Capabilities the step depends on.
  */
 export function stepCapabilities(step: PlanStep): readonly CapabilityId[] {
+  if (step.op === 'screenshot' && step.window !== undefined) return ['capture.window']
   if (step.op !== 'floatWindow') return OP_SPECS[step.op].requires
   const required: CapabilityId[] = []
   if (step.floating !== undefined) required.push('dispatch.window.float')

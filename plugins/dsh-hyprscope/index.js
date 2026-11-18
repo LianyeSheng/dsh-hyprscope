@@ -37,9 +37,10 @@ const OBSERVE_KINDS = ['doctor', 'state', 'active', 'clients', 'workspaces', 'mo
 const SCREENSHOT_SCOPES = ['layout', 'monitor', 'region']
 const LEASE_ACTIONS = ['request', 'status', 'done', 'panic']
 const PLAN_ACTIONS = ['validate', 'run']
-const BASELINE_ACTIONS = ['show', 'probe', 'accept']
+const BASELINE_ACTIONS = ['show', 'probe']
 const DESKTOP_ACTIONS = ['start', 'attach', 'status', 'stop']
 const CONSENT_SOURCES = ['chat', 'card']
+const RENDER_LANGUAGES = ['zh', 'en']
 
 /** stdin target that makes `control run` read the plan document from stdin. */
 const PLAN_STDIN_TARGET = '-'
@@ -67,8 +68,9 @@ const STATE_SUMMARY_NOTE =
 
 /** Capability failure next step; control stays gated by an accepted baseline. */
 const CAPABILITY_NEXT_STEP =
-  'next step: run hyprscope_baseline with action "probe", explain the evidence, then call hyprscope_baseline action '
-  + '"accept": the desktop shows a confirmation card and the host answers it. Never claim the host accepted it.'
+  'next step: run hyprscope_baseline with action "probe" and explain the evidence; when the measurement widens the '
+  + 'baseline the same call shows the host a confirmation card and waits for the answer. The tool never answers that '
+  + 'card and never claims the host accepted it.'
 
 /** System-prompt guidance added when the systemPrompt service is available. */
 const PROMPT_TEXT =
@@ -76,8 +78,8 @@ const PROMPT_TEXT =
   + 'read-only. Any desktop change needs a lease: hyprscope_act for one single-step action (one consent card and its '
   + 'own short lease per call), hyprscope_lease request (the host gets a consent card), or hyprscope_plan run; every '
   + 'one of them requires an accepted capability baseline. If a call fails with CAPABILITY, run hyprscope_baseline '
-  + 'action "probe", explain the evidence, then call hyprscope_baseline action "accept" so the host answers the '
-  + 'confirmation card. Never approve a consent card on the host\'s behalf, and never claim the baseline was accepted.'
+  + 'action "probe", explain the evidence, and let the host answer the confirmation card the call may show. Never '
+  + 'approve a consent card on the host\'s behalf, and never claim the baseline was accepted.'
 
 const DEFAULT_TIMEOUT_MS = 30_000
 const DEFAULT_CONTROL_TIMEOUT_MS = 180_000
@@ -220,6 +222,26 @@ function instanceProperties() {
   }
 }
 
+/** Optional render-language argument shared by tools that show a consent card. */
+function languageProperty() {
+  return {
+    type: 'string',
+    enum: [...RENDER_LANGUAGES],
+    description: 'Language of the consent card and overlay (zh or en); omitted keeps the CLI default (zh).',
+  }
+}
+
+/**
+ * Append --lang when the caller chose a render language.
+ * @param {string[]} argv Argv being built.
+ * @param {object} input Tool arguments.
+ * @param {string} tool Tool name for error messages.
+ */
+function appendLanguage(argv, input, tool) {
+  if (input.language === undefined) return
+  argv.push('--lang', readEnum(input.language, RENDER_LANGUAGES, 'language', tool))
+}
+
 /** One tool parameter map with a false additionalProperties root. */
 function parameters(properties, required) {
   return { type: 'object', properties, required, additionalProperties: false }
@@ -288,10 +310,12 @@ function createScreenshotTool(runtime) {
     name: tool,
     description:
       'Capture a PNG from the host\'s Hyprland session: the whole layout (scope layout), one monitor (scope monitor '
-      + 'plus monitor) or a region in global layout coordinates (scope region plus region). Read-only: no lease is '
-      + 'involved. Screenshots are refused while the session reports locked; allowLocked lets a locked capture through, '
-      + 'so pass it only when the host asked for one. The PNG path is always returned; the image itself is attached when '
-      + 'the attachment store is available and the calling model route declares image input.',
+      + 'plus monitor), a region in global layout coordinates (scope region plus region), or one specific window '
+      + '(window.id, window.app or window.title). A window capture works even when the window is on another workspace '
+      + 'or covered. Read-only: no lease is involved. Screenshots are refused while the session reports locked; '
+      + 'allowLocked lets a locked capture through, so pass it only when the host asked for one. The PNG path is always '
+      + 'returned; the image itself is attached when the attachment store is available and the calling model route '
+      + 'declares image input.',
     parameters: parameters({
       scope: {
         type: 'string',
@@ -314,6 +338,20 @@ function createScreenshotTool(runtime) {
         required: ['x', 'y', 'width', 'height'],
         description: 'Region to capture; required when scope is region.',
       },
+      window: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          id: {
+            type: 'string',
+            description: 'Hyprland address (0x...) or foreign-toplevel identifier.',
+          },
+          app: { type: 'string', description: 'Application id / window class.' },
+          title: { type: 'string', description: 'Exact window title.' },
+        },
+        description: 'Capture one window, even when it is on another workspace or covered; provide exactly one of '
+          + 'id, app, or title.',
+      },
       output: {
         type: 'string',
         description: 'Absolute PNG destination path; defaults to a file under the plugin screenshot directory.',
@@ -335,6 +373,11 @@ function createScreenshotTool(runtime) {
       const input = readObject(args, tool)
       const scope = input.scope === undefined ? 'layout' : readEnum(input.scope, SCREENSHOT_SCOPES, 'scope', tool)
       const allowLocked = input.allowLocked === undefined ? false : readBoolean(input.allowLocked, 'allowLocked', tool)
+      if (input.window !== undefined
+        && ((input.scope !== undefined && scope !== 'layout') || input.monitor !== undefined || input.region !== undefined)) {
+        throw new Error(`${tool}: window is only valid when scope is omitted or "layout"`)
+      }
+      const window = input.window === undefined ? undefined : readWindowSelector(input.window, tool)
       if (scope !== 'monitor' && input.monitor !== undefined) {
         throw new Error(`${tool}: monitor is only valid when scope is "monitor"`)
       }
@@ -345,7 +388,9 @@ function createScreenshotTool(runtime) {
         ? await defaultScreenshotPath(settings)
         : readAbsolutePath(input.output, 'output', tool)
       const argv = ['screenshot', '--output', output]
-      if (scope === 'monitor') {
+      if (window !== undefined) {
+        argv.push(window.flag, window.value)
+      } else if (scope === 'monitor') {
         argv.push('--monitor', readNonEmptyString(input.monitor, 'monitor', tool))
       } else if (scope === 'region') {
         const region = readRegion(input.region, tool)
@@ -456,9 +501,8 @@ function createLeaseTool(runtime) {
       + 'card and waits for Allow/Deny, while inside an agent or external desktop the lease is granted programmatically '
       + 'under the consent recorded at desktop start/attach. status is read-only and safe to poll. done releases control '
       + 'from the agent side; panic releases it immediately. Control needs an accepted, current capability baseline: if '
-      + 'a call fails with CAPABILITY, run hyprscope_baseline with action "probe", explain the evidence, then call '
-      + 'hyprscope_baseline action "accept" so the host answers the confirmation card. Never approve the consent card '
-      + 'on the host\'s behalf.',
+      + 'a call fails with CAPABILITY, run hyprscope_baseline with action "probe", explain the evidence, and let the '
+      + 'host answer the confirmation card the call may show. Never approve a consent card on the host\'s behalf.',
     parameters: parameters({
       action: {
         type: 'string',
@@ -477,6 +521,7 @@ function createLeaseTool(runtime) {
         type: 'integer',
         description: 'How long the consent card waits in seconds (5..120, default 45). request only.',
       },
+      language: languageProperty(),
       ...instanceProperties(),
     }, ['action']),
     output: {
@@ -497,6 +542,7 @@ function createLeaseTool(runtime) {
         // The card may wait for the whole consent window before the CLI returns.
         timeoutMs = (consentSeconds + 30) * 1_000
       }
+      appendLanguage(argv, input, tool)
       appendInstanceFlags(argv, input, tool)
       const result = await runCli(runtime, argv, { timeoutMs, signal: exec.signal })
       assertSuccess(result, argv)
@@ -546,6 +592,7 @@ function createPlanTool(runtime) {
         type: 'integer',
         description: 'How long the consent card waits in seconds (5..120, default 45). run only.',
       },
+      language: languageProperty(),
       ...instanceProperties(),
     }, ['action']),
     output: {
@@ -577,6 +624,7 @@ function createPlanTool(runtime) {
       const argv = ['control', 'run', planTarget]
       if (action === 'validate') argv.push('--dry-run')
       else argv.push('--consent', String(consentSeconds), '--max-resumes', String(maxResumes))
+      appendLanguage(argv, input, tool)
       appendInstanceFlags(argv, input, tool)
       const result = await runCli(runtime, argv, {
         timeoutMs: settings.controlTimeoutMs + (consentSeconds + 20) * 1_000,
@@ -654,6 +702,7 @@ function createActTool(runtime) {
         maximum: 120,
         description: 'How long the consent card waits in seconds (5..120, default 45).',
       },
+      language: languageProperty(),
     }, ['step', 'reason']),
     output: {
       schema: OUTPUT_SCHEMA,
@@ -678,6 +727,7 @@ function createActTool(runtime) {
         '--consent', String(consentSeconds),
         '--max-resumes', String(maxResumes),
       ]
+      appendLanguage(argv, input, tool)
       const result = await runCli(runtime, argv, {
         timeoutMs: settings.controlTimeoutMs + (consentSeconds + 20) * 1_000,
         signal: exec.signal,
@@ -690,9 +740,10 @@ function createActTool(runtime) {
 }
 
 /**
- * Capability-baseline tool (`hyprscope control baseline --show|--probe|--accept --json`).
- * accept asks for a confirmation card; the click that answers it is the host's,
- * so the tool only carries the request and waits for the answer.
+ * Capability-baseline tool (`hyprscope control baseline --show|--probe --json`).
+ * `--probe` carries the host's confirmation card when the measurement widens the
+ * accepted baseline; the click that answers it is the host's, so the tool only
+ * carries the request and waits for the answer.
  * @param runtime Plugin context and settings.
  * @returns Tool definition.
  */
@@ -702,19 +753,20 @@ function createBaselineTool(runtime) {
   return {
     name: tool,
     description:
-      'Inspect, probe or accept the capability baseline that gates hyprscope control. show reports the accepted '
-      + 'baseline, any pending draft and, with diff, how the draft differs. probe measures this machine and writes a '
-      + 'draft; it takes a lease like any control action and may show a consent card on the user desktop (readOnly '
-      + 'measures without dispatching or injecting). accept turns the pending draft into the baseline: the desktop '
-      + 'shows a confirmation card with the verdict, evidence hash and capability counts, and the call returns only '
-      + 'after the host clicks Allow or Deny. The tool never answers that card and never claims the baseline was '
-      + 'accepted. A CAPABILITY failure from plan or lease means the baseline is missing, stale or incomplete.',
+      'Inspect or probe the capability baseline that gates hyprscope control. show reports the accepted baseline, '
+      + 'any pending draft and, with diff, how the draft differs. probe measures this machine and writes a draft; it '
+      + 'takes a lease like any control action and may show a consent card on the user desktop (readOnly measures '
+      + 'without dispatching or injecting). When the measurement widens the accepted baseline, the same call also '
+      + 'shows the host a confirmation card with the verdict, evidence hash and capability counts; the call returns '
+      + 'only after the host clicks Allow or Deny, and on deny or expiry the draft stays pending. The tool never '
+      + 'answers that card and never claims the baseline was accepted. A CAPABILITY failure from plan or lease means '
+      + 'the baseline is missing, stale or incomplete.',
     parameters: parameters({
       action: {
         type: 'string',
         enum: [...BASELINE_ACTIONS],
-        description: 'show reads the accepted baseline; probe measures this machine and writes a draft; '
-          + 'accept asks the host to confirm the pending draft.',
+        description: 'show reads the accepted baseline; probe measures this machine, writes a draft and may ask '
+          + 'the host to confirm a wider baseline.',
       },
       diff: {
         type: 'boolean',
@@ -726,8 +778,9 @@ function createBaselineTool(runtime) {
       },
       consentSeconds: {
         type: 'integer',
-        description: 'How long the consent card waits in seconds (5..120, default 45). probe and accept only.',
+        description: 'probe only: how long the consent and confirmation cards wait in seconds (5..120, default 45).',
       },
+      language: languageProperty(),
       ...instanceProperties(),
     }, ['action']),
     output: {
@@ -750,18 +803,15 @@ function createBaselineTool(runtime) {
       if (action === 'show') {
         argv.push('--show')
         if (diff) argv.push('--diff')
-      } else if (action === 'probe') {
+      } else {
+        // --probe carries the host's confirmation card when the measurement
+        // widens the accepted baseline: the CLI writes nothing before the answer.
         argv.push('--probe')
         if (readOnly) argv.push('--read-only')
         argv.push('--consent', String(consentSeconds))
         timeoutMs += (consentSeconds + 20) * 1_000
-      } else {
-        // accept only ever reaches the desktop as a confirmation card: the CLI
-        // command asks for the host's answer and writes nothing before it.
-        argv.push('--accept')
-        argv.push('--consent', String(consentSeconds))
-        timeoutMs += (consentSeconds + 20) * 1_000
       }
+      appendLanguage(argv, input, tool)
       appendInstanceFlags(argv, input, tool)
       const result = await runCli(runtime, argv, { timeoutMs, signal: exec.signal })
       assertSuccess(result, argv)
@@ -915,6 +965,22 @@ function readRegion(value, tool) {
   return region
 }
 
+/** CLI flag for each accepted `window` selector field. */
+const WINDOW_CAPTURE_FLAGS = { id: '--window-id', app: '--window-app', title: '--window-title' }
+
+/** @returns The CLI flag and non-empty selector value for a `window` argument. */
+function readWindowSelector(value, tool) {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`${tool}: window must be an object with exactly one of id, app, or title`)
+  }
+  const fields = Object.keys(WINDOW_CAPTURE_FLAGS).filter((field) => value[field] !== undefined)
+  if (fields.length !== 1) {
+    throw new Error(`${tool}: window must provide exactly one of id, app, or title`)
+  }
+  const field = fields[0]
+  return { flag: WINDOW_CAPTURE_FLAGS[field], value: readNonEmptyString(value[field], `window.${field}`, tool) }
+}
+
 /** @returns A `WxH` size string, or throws. */
 function readDesktopSize(value, tool) {
   const size = readNonEmptyString(value, 'size', tool)
@@ -1003,13 +1069,6 @@ function runCli(runtime, argv, options) {
         `hyprscope CLI not found at ${settings.entryPath}: point the plugin's projectDir config `
         + `(or HYPRSCOPE_PROJECT_DIR) at the hyprscope repository root.`,
       ))
-      return
-    }
-    // Accepting a baseline is the host's click on a confirmation card. Only the
-    // baseline tool may generate the one command that asks for that click; every
-    // other tool must keep the audit trail free of `--accept`.
-    if (argv.includes('--accept') && !(argv[0] === 'control' && argv[1] === 'baseline')) {
-      fail(new Error('internal error: only hyprscope_baseline accept may ask to accept a baseline'))
       return
     }
     const command = [settings.entryPath, ...argv, '--json']
@@ -1283,15 +1342,28 @@ function renderScreenshot(value, limit) {
   const source = capture.source !== null && typeof capture.source === 'object' ? capture.source : {}
   const scope = typeof source.scope === 'string' ? source.scope : 'layout'
   const sha = typeof capture.sha256 === 'string' ? capture.sha256.slice(0, 16) : 'unknown'
+  const window = renderWindowSource(source.window)
   const note = typeof capture.imageError === 'string' ? ` (image not attached: ${capture.imageError})` : ''
   const text = clipText(
     `Screenshot ${String(capture.path)} (${String(capture.width)}x${String(capture.height)}, `
-    + `${String(capture.bytes)} bytes, sha256 ${sha}) scope=${scope}${note}`,
+    + `${String(capture.bytes)} bytes, sha256 ${sha}) scope=${scope}${window}${note}`,
     limit,
   )
   const blocks = [{ type: 'text', text }]
   if (capture.image !== undefined) blocks.push({ type: 'image', attachment: capture.image })
   return blocks
+}
+
+/**
+ * Render the captured window as a deterministic suffix, when the source is a toplevel.
+ * @param window The capture's `source.window` value.
+ * @returns A ` window=<appId> "<title>"` suffix, or an empty string for other scopes.
+ */
+function renderWindowSource(window) {
+  if (window === null || typeof window !== 'object' || Array.isArray(window)) return ''
+  const app = typeof window.appId === 'string' && window.appId !== '' ? window.appId : '?'
+  const title = typeof window.title === 'string' ? window.title : ''
+  return ` window=${app} "${title}"`
 }
 
 /**

@@ -6,8 +6,8 @@
 # After editing either side, re-record the pair:
 #   python3 .agents/se/scripts/docs/verify_translation_pairing.py --write <pair>
 /compatibility-and-the-capability-baseline:
-  en: 53562ba1bdd280c9
-  zh: fa77509613d3d00a
+  en: f65837b46a6aa5dd
+  zh: 3cb24c8cada980a1
 /compatibility-and-the-capability-baseline/1-three-things-that-change:
   en: c49c985ea26261f7
   zh: 5a9d7ae4659e6e11
@@ -27,8 +27,8 @@
   en: 96b26187d51b38e9
   zh: 4d63b6027fed0f66
 /compatibility-and-the-capability-baseline/3-capability-catalog/3-4-optional:
-  en: d5045f320e88057f
-  zh: 707c5bc0c78ec57f
+  en: b4aad40b3230023e
+  zh: bdeb6752dde7b107
 /compatibility-and-the-capability-baseline/3-capability-catalog/3-5-evidence-levels:
   en: 9d1b77633ea7a0c0
   zh: 8531940fe080d4fc
@@ -39,14 +39,14 @@
   en: 21c0ed04ec362625
   zh: 80e53aa4af264dbc
 /compatibility-and-the-capability-baseline/4-the-probe/4-2-the-measure-plan:
-  en: 6f723792529a2ffc
-  zh: 7452042a8eb421c3
+  en: 53d09f2429a73848
+  zh: 4b022646bb6dc166
 /compatibility-and-the-capability-baseline/4-the-probe/4-3-what-the-probe-does-not-do:
   en: 37e6cf6fb350fc14
   zh: a34b4c5298b705d2
 /compatibility-and-the-capability-baseline/4-the-probe/4-4-without-a-scratch-client:
-  en: f241ecc72cb842dc
-  zh: dc28bb9adb9482ed
+  en: 035920fd811611ee
+  zh: c10166b15595dc33
 /compatibility-and-the-capability-baseline/4-the-probe/4-5-measure-mode-is-internal-only:
   en: 8d61c360361e2700
   zh: 1d221b479d5e13e4
@@ -54,17 +54,17 @@
   en: de01cc755a4da547
   zh: 0752d65e19e27f5a
 /compatibility-and-the-capability-baseline/5-the-effective-capability-set/5-1-drift-and-staleness:
-  en: 0ab6f51bf998ffcb
-  zh: d30e7f68a31a4749
+  en: c2838281298e713a
+  zh: 8e0bd261690a5a8d
 /compatibility-and-the-capability-baseline/6-anti-whitewashing:
   en: 7251418ad74f8f7e
   zh: e629a425cd4d4038
 /compatibility-and-the-capability-baseline/7-open-questions:
-  en: ad6f5ae9a8ba246c
-  zh: 2018194c87e114fe
+  en: 14b004ab2557a3ee
+  zh: 7c31f04bd8dfbc7e
 /compatibility-and-the-capability-baseline/8-where-it-lands-in-code:
-  en: 6e178b75cb26bd2a
-  zh: 593ce3faa26e8a48
+  en: 69bae4aaa6ec73c7
+  zh: d593a0761ff34c28
 /compatibility-and-the-capability-baseline/9-a-full-installation-walkthrough:
-  en: 81f7e16e85a42850
-  zh: 4cd3fa2d58c2b669
+  en: e2ef0154034f1824
+  zh: be205d47f987c042
