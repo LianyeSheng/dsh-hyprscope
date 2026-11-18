@@ -1,0 +1,49 @@
+# Bilingual-pair consistency record (sections keyed by the English heading slug path):
+# one entry per heading section, hashing each side's lines outside fenced code
+# blocks and excluding the language-switcher line, with paired-document link
+# targets normalized to a locale-neutral form. The header names no path, so the
+# same record is valid beside a pair's source and beside its installed copy.
+# After editing either side, re-record the pair:
+#   python3 .agents/se/scripts/docs/verify_translation_pairing.py --write <pair>
+/on-machine-verification-record:
+  en: ed1301db9fb35a6f
+  zh: a967454aae5ad742
+/on-machine-verification-record/environment:
+  en: b9257f1184adf1b3
+  zh: ed8d6456cd4848a4
+/on-machine-verification-record/observation-layer:
+  en: f1bc003a24f05437
+  zh: d3972f1e06795e42
+/on-machine-verification-record/control-lease:
+  en: 58db28869748cd9d
+  zh: dca5995ab8685d73
+/on-machine-verification-record/plan-execution-and-input-injection:
+  en: de0f77e67115c655
+  zh: 92909d3d96f39ad0
+/on-machine-verification-record/capability-baseline:
+  en: 01a5b3f141114027
+  zh: 43f7eda4301eda26
+/on-machine-verification-record/desktop-and-drift-2026-11-18:
+  en: 1ffc291b410833b0
+  zh: 68281ab028019490
+/on-machine-verification-record/unified-cli-2026-11-18:
+  en: f81d3d7c9f70cc0c
+  zh: dad2b754f8b8f203
+/on-machine-verification-record/dsh-plugin-2026-11-18:
+  en: 66b80ff1a920ba38
+  zh: 798e0a89d6b700a8
+/on-machine-verification-record/plan-binding-follow-up-2026-11-18:
+  en: b14cbf4f98ae576e
+  zh: cb0028105cdd25a6
+/on-machine-verification-record/consent-surface-baseline-acceptance-and-plan-preview-2026-11-18:
+  en: fa4764c02f312b61
+  zh: b01124a9108cdfad
+/on-machine-verification-record/probe-as-a-measure-plan-and-one-consent-card-2026-11-18:
+  en: f10c0385d2862cca
+  zh: f020ed33a3ba3e84
+/on-machine-verification-record/bundle-rename-and-new-artwork-2026-11-18:
+  en: 8656c429160fbb8d
+  zh: 56839158489a8628
+/on-machine-verification-record/not-covered:
+  en: 4157e16527b5b95c
+  zh: 10cbdd673ccb6449

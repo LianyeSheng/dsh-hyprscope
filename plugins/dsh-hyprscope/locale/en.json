@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Desktop observation and control",
+    "description": "Read the Hyprland desktop, take screenshots and follow compositor events; change windows, pointer or workspaces only through a plan you approve."
+  }
+}

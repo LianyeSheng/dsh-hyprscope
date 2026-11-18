@@ -1,0 +1,28 @@
+{
+  "name": "dsh-hyprscope",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Hyprland desktop observation and consent-gated control lease for DeepSeek Harness",
+  "type": "module",
+  "packageManager": "pnpm@12.20.0",
+  "bin": {
+    "hyprscope": "./bin/hyprscope.ts"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.ts plugins/dsh-hyprscope/test/*.test.js",
+    "check": "PYTHONDONTWRITEBYTECODE=1 python3 .agents/se/scripts/docs/verify_translation_pairing.py && pnpm run typecheck && pnpm test",
+    "doctor": "node ./bin/hyprscope.ts doctor",
+    "build:probe": "gcc -O2 -o bin/wl-globals probe/wl-globals.c $(pkg-config --cflags --libs wayland-client)",
+    "typecheck": "tsc --noEmit",
+    "build:inject": "bash tools/inject/build.sh",
+    "build:scratch": "bash tools/scratch/build.sh"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2"
+  }
+}

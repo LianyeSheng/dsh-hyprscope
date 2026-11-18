@@ -1,0 +1,61 @@
+version: 2.1
+
+# CI has no compositor. The live tests skip themselves when no Hyprland
+# session is reachable, so every job below runs on a bare container.
+jobs:
+  docs:
+    docker:
+      - image: cimg/python:3.13
+    steps:
+      - checkout
+      - run:
+          name: Verify bilingual document pairs
+          command: python3 .agents/se/scripts/docs/verify_translation_pairing.py
+
+  check:
+    docker:
+      - image: cimg/node:24.10
+    steps:
+      - checkout
+      - run:
+          name: Install pnpm
+          command: |
+            sudo npm install --global pnpm@12.20.0
+            pnpm --version
+      - run:
+          name: Install dependencies
+          command: pnpm install --frozen-lockfile
+      - run:
+          name: Type-check
+          command: pnpm run typecheck
+      - run:
+          name: Run tests
+          command: pnpm test
+
+  wayland-tools:
+    docker:
+      - image: cimg/base:stable
+    steps:
+      - checkout
+      - run:
+          name: Install build dependencies
+          command: |
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends \
+              build-essential pkg-config libwayland-dev wayland-protocols
+      - run:
+          name: Build the Wayland probe
+          command: gcc -O2 -o bin/wl-globals probe/wl-globals.c $(pkg-config --cflags --libs wayland-client)
+      - run:
+          name: Build the injection helper
+          command: bash tools/inject/build.sh
+      - run:
+          name: Build the scratch window
+          command: bash tools/scratch/build.sh
+
+workflows:
+  verify:
+    jobs:
+      - docs
+      - check
+      - wayland-tools

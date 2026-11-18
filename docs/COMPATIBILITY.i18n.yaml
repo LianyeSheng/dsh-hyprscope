@@ -1,0 +1,70 @@
+# Bilingual-pair consistency record (sections keyed by the English heading slug path):
+# one entry per heading section, hashing each side's lines outside fenced code
+# blocks and excluding the language-switcher line, with paired-document link
+# targets normalized to a locale-neutral form. The header names no path, so the
+# same record is valid beside a pair's source and beside its installed copy.
+# After editing either side, re-record the pair:
+#   python3 .agents/se/scripts/docs/verify_translation_pairing.py --write <pair>
+/compatibility-and-the-capability-baseline:
+  en: 53562ba1bdd280c9
+  zh: fa77509613d3d00a
+/compatibility-and-the-capability-baseline/1-three-things-that-change:
+  en: c49c985ea26261f7
+  zh: 5a9d7ae4659e6e11
+/compatibility-and-the-capability-baseline/2-names-and-roles:
+  en: f38d5d772cf1abc0
+  zh: 4a65bf651af41c1d
+/compatibility-and-the-capability-baseline/3-capability-catalog:
+  en: 0e0a148c9900417d
+  zh: 893f0ca7b7292ed5
+/compatibility-and-the-capability-baseline/3-capability-catalog/3-1-levels:
+  en: c5bea03102617673
+  zh: b07a224daf34ad25
+/compatibility-and-the-capability-baseline/3-capability-catalog/3-2-required:
+  en: ae6dcaf3c685a8ff
+  zh: 8eea7f18487fa8f9
+/compatibility-and-the-capability-baseline/3-capability-catalog/3-3-degraded:
+  en: 96b26187d51b38e9
+  zh: 4d63b6027fed0f66
+/compatibility-and-the-capability-baseline/3-capability-catalog/3-4-optional:
+  en: d5045f320e88057f
+  zh: 707c5bc0c78ec57f
+/compatibility-and-the-capability-baseline/3-capability-catalog/3-5-evidence-levels:
+  en: 9d1b77633ea7a0c0
+  zh: 8531940fe080d4fc
+/compatibility-and-the-capability-baseline/4-the-probe:
+  en: e0eb0a106017bbb0
+  zh: 7add913e59823999
+/compatibility-and-the-capability-baseline/4-the-probe/4-1-read-only-phase:
+  en: 21c0ed04ec362625
+  zh: 80e53aa4af264dbc
+/compatibility-and-the-capability-baseline/4-the-probe/4-2-the-measure-plan:
+  en: 6f723792529a2ffc
+  zh: 7452042a8eb421c3
+/compatibility-and-the-capability-baseline/4-the-probe/4-3-what-the-probe-does-not-do:
+  en: 37e6cf6fb350fc14
+  zh: a34b4c5298b705d2
+/compatibility-and-the-capability-baseline/4-the-probe/4-4-without-a-scratch-client:
+  en: f241ecc72cb842dc
+  zh: dc28bb9adb9482ed
+/compatibility-and-the-capability-baseline/4-the-probe/4-5-measure-mode-is-internal-only:
+  en: 8d61c360361e2700
+  zh: 1d221b479d5e13e4
+/compatibility-and-the-capability-baseline/5-the-effective-capability-set:
+  en: de01cc755a4da547
+  zh: 0752d65e19e27f5a
+/compatibility-and-the-capability-baseline/5-the-effective-capability-set/5-1-drift-and-staleness:
+  en: 0ab6f51bf998ffcb
+  zh: d30e7f68a31a4749
+/compatibility-and-the-capability-baseline/6-anti-whitewashing:
+  en: 7251418ad74f8f7e
+  zh: e629a425cd4d4038
+/compatibility-and-the-capability-baseline/7-open-questions:
+  en: ad6f5ae9a8ba246c
+  zh: 2018194c87e114fe
+/compatibility-and-the-capability-baseline/8-where-it-lands-in-code:
+  en: 6e178b75cb26bd2a
+  zh: 593ce3faa26e8a48
+/compatibility-and-the-capability-baseline/9-a-full-installation-walkthrough:
+  en: 81f7e16e85a42850
+  zh: 4cd3fa2d58c2b669

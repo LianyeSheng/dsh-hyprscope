@@ -1,0 +1,30 @@
+{
+  "name": "@local/dsh-hyprscope",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "description": "Hyprland desktop observation and consent-gated control for DeepSeek Harness.",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "test"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml",
+      "platforms": [
+        "linux"
+      ]
+    }
+  },
+  "license": "MIT"
+}

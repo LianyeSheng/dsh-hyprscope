@@ -1,0 +1,46 @@
+# Bilingual-pair consistency record (sections keyed by the English heading slug path):
+# one entry per heading section, hashing each side's lines outside fenced code
+# blocks and excluding the language-switcher line, with paired-document link
+# targets normalized to a locale-neutral form. The header names no path, so the
+# same record is valid beside a pair's source and beside its installed copy.
+# After editing either side, re-record the pair:
+#   python3 .agents/se/scripts/docs/verify_translation_pairing.py --write <pair>
+/the-agent-desktop-hyprscope-control-desktop:
+  en: 644d3f82180f37c6
+  zh: 1f56643d525d6d56
+/the-agent-desktop-hyprscope-control-desktop/1-what-it-is:
+  en: 745df99aa6b5ae72
+  zh: 002881d31186ae09
+/the-agent-desktop-hyprscope-control-desktop/2-target-selection-and-addressing:
+  en: af740e8650d28ff9
+  zh: 6525d2488911c73f
+/the-agent-desktop-hyprscope-control-desktop/3-lifecycle:
+  en: df2c834e17f2ebd7
+  zh: b7a150c94832fde2
+/the-agent-desktop-hyprscope-control-desktop/4-directories:
+  en: 4b33ccf12416784c
+  zh: 096165073085252e
+/the-agent-desktop-hyprscope-control-desktop/5-configuration:
+  en: 10685a1469d5f805
+  zh: 7ad169cb5d717afb
+/the-agent-desktop-hyprscope-control-desktop/6-capability-baseline-and-staleness:
+  en: cc23ec7c30b2896c
+  zh: 32399215a5a656a2
+/the-agent-desktop-hyprscope-control-desktop/7-consent:
+  en: 318e537fb6cbe52e
+  zh: f5dde9b7ac9a9525
+/the-agent-desktop-hyprscope-control-desktop/8-failures-and-cleanup:
+  en: 515618213fc6f4fe
+  zh: 34b8f326002b6de1
+/the-agent-desktop-hyprscope-control-desktop/9-command-surface:
+  en: b948f26807c9ed94
+  zh: 5aa1fed76a07fdfd
+/the-agent-desktop-hyprscope-control-desktop/10-code-map:
+  en: 0991c3041d81dee6
+  zh: 13c125e2495a75f1
+/the-agent-desktop-hyprscope-control-desktop/11-what-it-is-not:
+  en: c8677d4aa84a2e37
+  zh: fdc138f398af812b
+/the-agent-desktop-hyprscope-control-desktop/12-open-questions:
+  en: cd1b51133e095883
+  zh: 3aa13c8cd2424ea0

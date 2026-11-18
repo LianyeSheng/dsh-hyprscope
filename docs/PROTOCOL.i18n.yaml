@@ -1,0 +1,52 @@
+# Bilingual-pair consistency record (sections keyed by the English heading slug path):
+# one entry per heading section, hashing each side's lines outside fenced code
+# blocks and excluding the language-switcher line, with paired-document link
+# targets normalized to a locale-neutral form. The header names no path, so the
+# same record is valid beside a pair's source and beside its installed copy.
+# After editing either side, re-record the pair:
+#   python3 .agents/se/scripts/docs/verify_translation_pairing.py --write <pair>
+/observation-and-capability-contract:
+  en: 2bda571b0d666393
+  zh: c790910d3034bec4
+/observation-and-capability-contract/1-snapshot-record:
+  en: 0159563720e3a98b
+  zh: 5e35222ad3439c79
+/observation-and-capability-contract/2-coordinates-and-scaling:
+  en: 1f720e46717dfacf
+  zh: b842fc9b0aaba318
+/observation-and-capability-contract/3-event-stream:
+  en: f09b23f1b4d0148a
+  zh: 5fcaad24efd51857
+/observation-and-capability-contract/4-error-codes:
+  en: 8e2c6c1c24d1b7a6
+  zh: 5de6b13e60bc41ef
+/observation-and-capability-contract/5-capability-report:
+  en: a4c7d6929f2b913a
+  zh: 942e496be32306a4
+/observation-and-capability-contract/5-capability-report/5-1-capability-baseline:
+  en: d56b10df8f0968e0
+  zh: 2af21db642028a3d
+/observation-and-capability-contract/6-mapping-to-dsh-cua:
+  en: 3abb98257c79f2ef
+  zh: d6099cd27a9c67b1
+/observation-and-capability-contract/7-version-sensitive-points:
+  en: e6cdcd90d5d0cafe
+  zh: 3592362e26f90e9d
+/observation-and-capability-contract/8-control-lease-hyprscope-control:
+  en: c924fc3fa8f3f6dd
+  zh: fe1d5c9754978018
+/observation-and-capability-contract/8-control-lease-hyprscope-control/lease-record:
+  en: a596d9d54f05835e
+  zh: dbef6934e32e246c
+/observation-and-capability-contract/8-control-lease-hyprscope-control/invariants:
+  en: ec52f98ac4f7a813
+  zh: 0808134abbb68bdc
+/observation-and-capability-contract/8-control-lease-hyprscope-control/failsafe-shortcut:
+  en: 63279c8869657d5c
+  zh: ab7d7b3d0cd6041d
+/observation-and-capability-contract/8-control-lease-hyprscope-control/relationship-to-cua:
+  en: 30a3728bf2222982
+  zh: b204f500823b5d4a
+/observation-and-capability-contract/9-plan-execution-capability-declaration:
+  en: 2368a8a36c9851e7
+  zh: d21a0085b42dfa2c

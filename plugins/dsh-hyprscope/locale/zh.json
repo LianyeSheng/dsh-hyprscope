@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "桌面观察与操控",
+    "description": "读取 Hyprland 桌面状态、截图并订阅 compositor 事件；改变窗口、指针或工作区时，只能通过你批准的计划执行。"
+  }
+}

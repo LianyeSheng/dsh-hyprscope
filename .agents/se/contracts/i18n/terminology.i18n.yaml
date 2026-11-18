@@ -1,0 +1,25 @@
+# Bilingual-pair consistency record (sections keyed by the English heading slug path):
+# one entry per heading section, hashing each side's lines outside fenced code
+# blocks and excluding the language-switcher line, with paired-document link
+# targets normalized to a locale-neutral form. The header names no path, so the
+# same record is valid beside a pair's source and beside its installed copy.
+# After editing either side, re-record the pair:
+#   python3 .agents/se/scripts/docs/verify_translation_pairing.py --write <pair>
+/terminology:
+  en: 3e89e328be6c49c1
+  zh: 1408c9ffc5026747
+/terminology/products-and-entry-points:
+  en: 8970dd02bf30db8b
+  zh: 1c0c772782044239
+/terminology/observation:
+  en: d6eea6570c35c609
+  zh: b334a8486db29a90
+/terminology/control-and-plans:
+  en: f8badf1e6adce1a2
+  zh: 9429f399395de1aa
+/terminology/interference-and-recovery:
+  en: 2681bfed18355e77
+  zh: 017a510a8b42cb84
+/terminology/capability-baseline:
+  en: c89140fdf15e19f3
+  zh: 35d8cc85c373cc2a

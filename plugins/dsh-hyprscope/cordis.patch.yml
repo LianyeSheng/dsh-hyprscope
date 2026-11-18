@@ -1,0 +1,5 @@
+# Insert the hyprscope tool row; the plugin needs only ctx.tools.
+- insert:
+    - id: hyprscope
+      name: '@local/dsh-hyprscope'
+      config: {}

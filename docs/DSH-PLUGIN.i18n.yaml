@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record (sections keyed by the English heading slug path):
+# one entry per heading section, hashing each side's lines outside fenced code
+# blocks and excluding the language-switcher line, with paired-document link
+# targets normalized to a locale-neutral form. The header names no path, so the
+# same record is valid beside a pair's source and beside its installed copy.
+# After editing either side, re-record the pair:
+#   python3 .agents/se/scripts/docs/verify_translation_pairing.py --write <pair>
+/dsh-plugin-for-hyprscope:
+  en: ada4446dc660c736
+  zh: 002191d0d069280b
+/dsh-plugin-for-hyprscope/what-it-is-and-why:
+  en: 426f5e9c3c51ea87
+  zh: 6b1024ecfc69133d
+/dsh-plugin-for-hyprscope/installing-the-bundle:
+  en: 8685f6a0f1e90e93
+  zh: 696aeec945ff083a
+/dsh-plugin-for-hyprscope/the-eight-tools:
+  en: fc13c3a4b76ad8ad
+  zh: e9fa806948c35275
+/dsh-plugin-for-hyprscope/configuration:
+  en: e0db53d58cf9b1e7
+  zh: 3c01a45f29caaf63
+/dsh-plugin-for-hyprscope/how-the-safety-boundary-holds:
+  en: a6c7228f6b92944e
+  zh: d7052ae6d30dcf7b
+/dsh-plugin-for-hyprscope/limitations:
+  en: bbbe86d589540a3e
+  zh: a9bf67140fbb3ac7

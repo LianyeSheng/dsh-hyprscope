@@ -1,0 +1,34 @@
+# Bilingual-pair consistency record (sections keyed by the English heading slug path):
+# one entry per heading section, hashing each side's lines outside fenced code
+# blocks and excluding the language-switcher line, with paired-document link
+# targets normalized to a locale-neutral form. The header names no path, so the
+# same record is valid beside a pair's source and beside its installed copy.
+# After editing either side, re-record the pair:
+#   python3 .agents/se/scripts/docs/verify_translation_pairing.py --write <pair>
+/the-capability-baseline-file-baseline-json:
+  en: 46202da5943e55df
+  zh: b939d63242db81bb
+/the-capability-baseline-file-baseline-json/1-location-and-ownership:
+  en: 79475cdba396769c
+  zh: e1ec580821d1191c
+/the-capability-baseline-file-baseline-json/2-top-level-structure:
+  en: 2e9a64843d53fc8e
+  zh: 63ad3efae2b937f1
+/the-capability-baseline-file-baseline-json/3-environment-fingerprint:
+  en: 346872db6e750cfa
+  zh: 0b0b6cfe4db5bb40
+/the-capability-baseline-file-baseline-json/4-capability-entries:
+  en: bd102523bb51dc8d
+  zh: 5731bee3a230e359
+/the-capability-baseline-file-baseline-json/5-how-state-is-computed:
+  en: ac6eda8691e99403
+  zh: a4376c453a818ab3
+/the-capability-baseline-file-baseline-json/6-reader-rules-engine-side:
+  en: 0cc3d90864dab545
+  zh: 2941bc6a95057a32
+/the-capability-baseline-file-baseline-json/7-approval-and-narrowing:
+  en: 99e2a46a06d8a596
+  zh: ba243934cd54f60c
+/the-capability-baseline-file-baseline-json/8-relationship-to-plans-and-leases:
+  en: 5ff8b62a17fdfa03
+  zh: 8dfd1deef5b38ec0

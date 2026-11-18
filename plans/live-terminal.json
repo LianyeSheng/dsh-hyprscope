@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "id": "live-terminal",
+  "reason": "Type one line into a scratch terminal and capture the result",
+  "summary": "focus a scratch terminal, click it, type a line, press Return, capture the window",
+  "budgetMs": 8000,
+  "settleMs": 800,
+  "steps": [
+    {
+      "op": "focusWindow",
+      "target": { "app": "foot" },
+      "requires": [
+        { "kind": "window.exists", "target": { "app": "foot" } },
+        { "kind": "window.geometry", "target": { "app": "foot" } }
+      ],
+      "expect": [{ "kind": "window.focused", "target": { "app": "foot" } }]
+    },
+    {
+      "op": "click",
+      "at": { "window": { "app": "foot" }, "point": [0.5, 0.6] },
+      "button": "left",
+      "requires": [
+        { "kind": "window.focused", "target": { "app": "foot" } },
+        { "kind": "window.geometry", "target": { "app": "foot" } }
+      ],
+      "expect": [{ "kind": "window.focused", "target": { "app": "foot" } }]
+    },
+    {
+      "op": "text",
+      "text": "echo hyprscope-live",
+      "requires": [{ "kind": "window.focused", "target": { "app": "foot" } }],
+      "expect": [
+        { "kind": "region.changed", "target": { "app": "foot" }, "rect": [0.02, 0.02, 0.96, 0.9] }
+      ]
+    },
+    {
+      "op": "chord",
+      "keys": ["Return"],
+      "requires": [{ "kind": "window.focused", "target": { "app": "foot" } }],
+      "expect": [
+        { "kind": "region.changed", "target": { "app": "foot" }, "rect": [0.02, 0.02, 0.96, 0.9] }
+      ]
+    },
+    {
+      "op": "screenshot",
+      "label": "terminal",
+      "region": { "window": { "app": "foot" }, "rect": [0, 0, 1, 1] }
+    }
+  ]
+}

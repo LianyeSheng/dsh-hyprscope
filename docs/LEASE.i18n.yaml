@@ -1,0 +1,43 @@
+# Bilingual-pair consistency record (sections keyed by the English heading slug path):
+# one entry per heading section, hashing each side's lines outside fenced code
+# blocks and excluding the language-switcher line, with paired-document link
+# targets normalized to a locale-neutral form. The header names no path, so the
+# same record is valid beside a pair's source and beside its installed copy.
+# After editing either side, re-record the pair:
+#   python3 .agents/se/scripts/docs/verify_translation_pairing.py --write <pair>
+/control-lease-hyprscope-control:
+  en: 3064121b7067c7fc
+  zh: 7528bb539e2641d9
+/control-lease-hyprscope-control/a-full-lease-lifecycle:
+  en: 62909160cfe9993e
+  zh: db709319aa2276ab
+/control-lease-hyprscope-control/state-and-files:
+  en: bf049f819aaebb4d
+  zh: 5381bdd69ac4eef9
+/control-lease-hyprscope-control/state-and-files/renewal-and-recovery-fields:
+  en: 8a55440ec7543788
+  zh: e76913cb51a92665
+/control-lease-hyprscope-control/state-and-files/one-consent-card:
+  en: d30800e9f924df25
+  zh: 63c0f373198a5090
+/control-lease-hyprscope-control/state-and-files/interference-prompt-record:
+  en: fa71134805e2dd49
+  zh: b284e503925baff8
+/control-lease-hyprscope-control/commands:
+  en: b638b116ec5f1595
+  zh: 84547184a04f86eb
+/control-lease-hyprscope-control/failsafe-chain:
+  en: 49c58607609f94c7
+  zh: 0150e7d3fb6e4926
+/control-lease-hyprscope-control/boundaries-why-we-do-not-intercept-input:
+  en: fe80b5a9cb3f0c50
+  zh: 792b0b6467d665bd
+/control-lease-hyprscope-control/boundaries-why-we-do-not-intercept-input/consent-is-not-a-security-boundary:
+  en: 34523719b30666d6
+  zh: b46c0c1475ffd380
+/control-lease-hyprscope-control/interface-with-the-plan-executor:
+  en: 2f185b8aa15e1db0
+  zh: 22066a8b3fcc0f4d
+/control-lease-hyprscope-control/current-limitations:
+  en: bd7b332e26fbb4c1
+  zh: 3fce3f0770a01409

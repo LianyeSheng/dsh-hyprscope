@@ -1,0 +1,55 @@
+# Bilingual-pair consistency record (sections keyed by the English heading slug path):
+# one entry per heading section, hashing each side's lines outside fenced code
+# blocks and excluding the language-switcher line, with paired-document link
+# targets normalized to a locale-neutral form. The header names no path, so the
+# same record is valid beside a pair's source and beside its installed copy.
+# After editing either side, re-record the pair:
+#   python3 .agents/se/scripts/docs/verify_translation_pairing.py --write <pair>
+/plan-contract-hyprscope-control-run:
+  en: 99e40c48a3595272
+  zh: f197850306d7b847
+/plan-contract-hyprscope-control-run/1-positioning:
+  en: 0c5cd8d53feb7f20
+  zh: 787262669f32b396
+/plan-contract-hyprscope-control-run/1-positioning/internal-measurement-mode:
+  en: 9921f6f7927dcf50
+  zh: e84ab2e2fd37b27c
+/plan-contract-hyprscope-control-run/2-plan-schema:
+  en: 2023ac58b4b5a605
+  zh: e007f63eb7baeb28
+/plan-contract-hyprscope-control-run/3-preconditions-and-expectations:
+  en: d16b41230a0b9faa
+  zh: 31bbffa25520904a
+/plan-contract-hyprscope-control-run/4-operations:
+  en: 04bde1e2164aff89
+  zh: 06ad117d60f9bca1
+/plan-contract-hyprscope-control-run/5-interference-policy:
+  en: 1b6235d67aa25fc2
+  zh: ffcc042e8e2bc031
+/plan-contract-hyprscope-control-run/6-recovery:
+  en: 7851c1abf5d58bbf
+  zh: cff8ad60e97dca40
+/plan-contract-hyprscope-control-run/6-recovery/restorability:
+  en: 100657cc02d8b669
+  zh: f9bbd3e9d262f6d9
+/plan-contract-hyprscope-control-run/6-recovery/ladder:
+  en: ba301727e54138ba
+  zh: ff09fcfc1bad2fee
+/plan-contract-hyprscope-control-run/6-recovery/derived-plan:
+  en: 99f4520b739e4fc1
+  zh: dad9be016431a4e0
+/plan-contract-hyprscope-control-run/6-recovery/consent-and-renewal:
+  en: 177d4010cc972fd0
+  zh: 006033c18bacefc7
+/plan-contract-hyprscope-control-run/6-recovery/termination-and-receipt:
+  en: ef8971a1a0905f6b
+  zh: 0c02f576a5f66682
+/plan-contract-hyprscope-control-run/7-fault-record:
+  en: 3f91397136511276
+  zh: a1f8424e5e89e6d8
+/plan-contract-hyprscope-control-run/8-consent-binding:
+  en: cacfeda2079d92cc
+  zh: 9730af602dceecf0
+/plan-contract-hyprscope-control-run/9-limits-and-non-goals:
+  en: aad692da0aeb11f7
+  zh: ba09a36c42563f54

@@ -1,0 +1,11 @@
+node_modules/
+bin/wl-globals
+out/
+.tmp/
+.pnpm-store/
+pnpm-store-operation-locks-*/
+bin/wl-inject
+tools/inject/generated/
+__pycache__/
+bin/wl-scratch
+tools/scratch/generated/

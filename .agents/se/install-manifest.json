@@ -1,0 +1,113 @@
+{
+  "kit_revision": "2026-11-03.1",
+  "components": [
+    "bilingual-docs"
+  ],
+  "mode": "tracked",
+  "agents_md_created": false,
+  "files": [
+    {
+      "path": ".agents/se/contracts/i18n/README.i18n.yaml",
+      "sha256": "6e263eacc9cca98bfa149c50406c1e2b20a54b930758ea7e6497b67ab5adf9f9",
+      "component": "bilingual-docs"
+    },
+    {
+      "path": ".agents/se/contracts/i18n/README.md",
+      "sha256": "4338c7f15c8ad1a264fc4f4f06651fbd6a308e0568a615a6ff15f1b80f6f078c",
+      "component": "bilingual-docs"
+    },
+    {
+      "path": ".agents/se/contracts/i18n/README.zh.md",
+      "sha256": "cf8470c4783c16a71c9ef9128bb797aca93129eb020a965f691f0d3ee4529c32",
+      "component": "bilingual-docs"
+    },
+    {
+      "path": ".agents/se/contracts/i18n/terminology.i18n.yaml",
+      "sha256": "4278070aaf9c8c961c69993dc1039b374b5ed87707923ca69ae9e98c5293c340",
+      "component": "bilingual-docs"
+    },
+    {
+      "path": ".agents/se/contracts/i18n/terminology.md",
+      "sha256": "c13d7bcc3323e22c531d93a8b1e0f7c66363edcd27e38f4c7de1347268f388c1",
+      "component": "bilingual-docs"
+    },
+    {
+      "path": ".agents/se/contracts/i18n/terminology.zh.md",
+      "sha256": "973afa6f4d337b6e8ecfc3411fe94d7fde389e3c2590fc699d452194e2a22264",
+      "component": "bilingual-docs"
+    },
+    {
+      "path": ".agents/se/contracts/i18n/translation-rules.i18n.yaml",
+      "sha256": "f303527fe17aaf07366b7767bf416d8fec8368f03d4d0f4ed103393e7e5192e3",
+      "component": "bilingual-docs"
+    },
+    {
+      "path": ".agents/se/contracts/i18n/translation-rules.md",
+      "sha256": "3080268e914d33803db001cab7521776abbe0d83ebd86bff5ebb912fb81fd74a",
+      "component": "bilingual-docs"
+    },
+    {
+      "path": ".agents/se/contracts/i18n/translation-rules.zh.md",
+      "sha256": "c78fd805bad010cf5fa2c9f2bfc7009b7d66137421eb0e20575ddb93ab467d89",
+      "component": "bilingual-docs"
+    },
+    {
+      "path": ".agents/se/scripts/docs/translation-pairing.manifest.json",
+      "sha256": "698d94421636cf5ab02f6ccf1133956c60f55b3b40f10fdffe05921acbe435aa",
+      "component": "bilingual-docs"
+    },
+    {
+      "path": ".agents/se/scripts/docs/translation_hints.py",
+      "sha256": "457a4fa39f58ec5f53f2b92c1ed04ea576bc707ef3227ee0ee7389f1527852a0",
+      "component": "bilingual-docs"
+    },
+    {
+      "path": ".agents/se/scripts/docs/translation_hints_report.py",
+      "sha256": "c341521cae04ee0b356f008c6270219cda9024841ac322191c2cb5bd1d61b15e",
+      "component": "bilingual-docs"
+    },
+    {
+      "path": ".agents/se/scripts/docs/translation_links.py",
+      "sha256": "8493518e26cb3e252cd95a855973d4a91ca4cc994c1662d4f0265e8aee0466bd",
+      "component": "bilingual-docs"
+    },
+    {
+      "path": ".agents/se/scripts/docs/translation_pairing.py",
+      "sha256": "c6198ee6e49dbae7f835a5111fccd358d6ebd5668eb6ddad47549c2cfb52ebf6",
+      "component": "bilingual-docs"
+    },
+    {
+      "path": ".agents/se/scripts/docs/translation_pairing_check.py",
+      "sha256": "9e57f6fcb3af65047ca9c9d0516b6cde396f2fc9e5e5411c1e3781e27ddfe664",
+      "component": "bilingual-docs"
+    },
+    {
+      "path": ".agents/se/scripts/docs/translation_pairing_record.py",
+      "sha256": "b8955b61d982a30c71a6f2dc69fbb0c010669cb4ecfd64b3c73e300e7b9ee42e",
+      "component": "bilingual-docs"
+    },
+    {
+      "path": ".agents/se/scripts/docs/verify_translation_pairing.py",
+      "sha256": "848cfdf60470fd7fe41fec8084e062d973e172226c96bf334d671952940ddafd",
+      "component": "bilingual-docs"
+    },
+    {
+      "path": ".agents/skills/update-bilingual-docs/SKILL.i18n.yaml",
+      "sha256": "ae2b7dada5fb7ddff39db6b03b7a0ec8dc2506579da5daae03f9cdadaa598f8d",
+      "component": "bilingual-docs"
+    },
+    {
+      "path": ".agents/skills/update-bilingual-docs/SKILL.md",
+      "sha256": "964073f2ccb905a2751770d139bff8db61868c3b180ab706a38133ec7fc254a8",
+      "component": "bilingual-docs"
+    },
+    {
+      "path": ".agents/skills/update-bilingual-docs/SKILL.zh.md",
+      "sha256": "79bb6ee077e3a45a28d3b06fd5dde49c716b107c98967dd1c3a6a496bd933e13",
+      "component": "bilingual-docs"
+    }
+  ],
+  "blocks": {
+    "bilingual-docs": "d20620df52c0fde026182526374abfde99e9fbfc9649ba611c9a427a1902d977"
+  }
+}
