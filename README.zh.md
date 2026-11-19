@@ -8,7 +8,7 @@
 
 它先解决一个具体问题：DSH 的进程常常不在图形会话里，`WAYLAND_DISPLAY`、`HYPRLAND_INSTANCE_SIGNATURE` 都是空的，既看不见桌面，也不知道该把请求发给哪个 compositor。hyprscope 负责找到会话，把状态整理成稳定的字段，方便以后接 DSH 的 CUA provider。
 
-项目只有一个入口：`hyprscope` 负责只读观察，`hyprscope control` 是带同意门控的控制面。两边共用会话发现和观察代码，但只读命令不会加载租约、执行器或桌面生命周期的代码，所有会改变桌面的命令都在 `control` 下面。
+项目只有一个入口、三组命令：`hyprscope` 负责只读观察，`hyprscope control` 是带同意门控的控制面，`hyprscope message` 驱动桌面提示条和输入框，把消息交给后台运行的 DSH Host。三者共用会话发现，但只读命令不会加载租约、执行器或桌面生命周期的代码，消息面同样一个都不加载，所有会改变桌面的命令都在 `control` 下面。
 
 ## 快速开始
 
@@ -92,6 +92,22 @@ node bin/hyprscope.ts control desktop status
 node bin/hyprscope.ts control desktop stop
 ```
 
+### 桌面消息
+
+装了本插件的 DSH Host 在运行时，桌面右上角会有一个很小的提示条：DSH 正在后台运行、hyprscope 已启用、消息快捷键已就绪。提示条是 Quickshell 画的一个小胶囊，Host 每隔几秒刷新心跳，DSH 停下它就消失。
+
+按下快捷键（默认 `SUPER + ALT + M`），屏幕中央出现一个输入框。写完按 Enter，消息会落进 Host 最近看到的那个会话，形式是一条普通用户消息；路由支持图片时还会附上发送那一刻的桌面截图。于是不用把浏览器页面摆在前面，agent 也能看到屏幕；图片被跳过时，它仍然可以调用 `hyprscope_screenshot` 或 `hyprscope_observe`。Esc 取消；输入框只在可见时占用键盘。
+
+快捷键和兜底键一起装一次，然后重启 DSH，让插件加载这条桥：
+
+```sh
+node bin/hyprscope.ts control install-bind          # SUPER + ALT + ESC revokes control; SUPER + ALT + M opens the composer
+node bin/hyprscope.ts control install-bind --message-key "SUPER + ALT + D"
+node bin/hyprscope.ts message open                  # what the shortcut runs; also works from a terminal
+```
+
+消息面需要 Quickshell、一个连得上的 Hyprland 会话，以及暴露 `sessionController` 的 DSH profile（Web 和 Desktop 组合包都有）。它不拿租约，也不改桌面状态：只画浮层、写消息文件，并通过 Host 自己的 prompt 准入敲一条消息。安装快捷键会改变 bind 数量，已验收的能力基线因此变 stale；控制运行之前要重新 probe，并让宿主确认新的计数。插件侧的行为、目标选择和状态文件在 [docs/DSH-PLUGIN.zh.md](/docs/DSH-PLUGIN.zh.md)。
+
 ### 批执行
 
 只要动作超过一两步，就应该写一份计划让程序执行：
@@ -123,7 +139,8 @@ node bin/hyprscope.ts control run plans/live-terminal.json             # show th
 | `hyprscope control baseline --probe / --show` | 测量这台机器；结果比已验收基线更宽时，同一条命令会请宿主在确认卡上确认，并在允许后写入新基线；`--show` 复核证据和已验收基线 |
 | `hyprscope control status / panic` | 查看控制租约；`panic` 是兜底快捷键用的紧急收回，绝不是 agent 工作流的一步 |
 | `hyprscope control desktop start / attach / status / stop` | 启动嵌套 agent 桌面、挂接已有实例、查看两者状态，或停止 |
-| `hyprscope control install-bind / uninstall-bind` | 安装或移除 `SUPER + ALT + ESC` 兜底 |
+| `hyprscope control install-bind / uninstall-bind` | 安装或移除受管快捷键：`SUPER + ALT + ESC` 兜底和 `SUPER + ALT + M` 桌面消息（`--key`、`--message-key`） |
+| `hyprscope message open / overlay / stop` | 打开桌面输入框（快捷键运行的就是它）、启动提示浮层，或让它退出；`--lang zh\|en`、`--json` |
 
 通用选项：`--json`、`--desktop <user|agent|external>`、`--signature <sig>`、`--runtime-dir <dir>`、`-h`、`-v`；`hyprscope` 另外接受 `--timeout <ms>`。`--desktop` 选命令作用在哪个实例上；观察命令以及 `hyprscope control run`、`status`、`panic`、`ops`、`baseline` 都接受它，省略即用户桌面。`hyprscope control` 的每个控制命令还接受 `--lang <zh|en>`：它选择同意卡或确认卡、以及浮层的语言（默认 `zh`，可用 `HYPRSCOPE_LANG` 环境变量；未知值按用法错误处理），CLI 的 stdout 仍是英文。脚本里请用 `--json`，人类可读输出只求顺眼，列对齐和措辞不保证稳定；参数错退出码 2，其它失败退出码 1。
 
@@ -133,7 +150,7 @@ node bin/hyprscope.ts control run plans/live-terminal.json             # show th
 
 `plugins/dsh-hyprscope/` 是本项目原生、开箱即用的 DSH Host 插件组合包（bundle），把这些命令变成模型可调用的六个工具，DSH 会话不用再自己拼 `node bin/hyprscope.ts ... --json` 命令。`hyprscope_observe`、`hyprscope_screenshot` 和 `hyprscope_events` 只读桌面；`hyprscope_plan`、`hyprscope_baseline` 和 `hyprscope_desktop` 走 `hyprscope control`；一次计划运行就是同意步骤，也覆盖了以前单步动作的用法。观察不需要同意；改变桌面仍然要宿主在控制租约里同意，并且要有一份已验收的能力基线，插件没有加绕开它们的办法。会弹同意卡的工具还接受可选的 `language`（`zh` 或 `en`；省略即沿用中文默认）：`hyprscope_plan` 的 `run` 和 `hyprscope_baseline` 的 `probe`。
 
-在**插件**页选择**添加插件**，填入绝对目录 `/home/jw/workspace/dsh-hyprscope/plugins/dsh-hyprscope`；或者让 DSH 里的 agent 用 `plugin_manager` 的 `install_bundle` 装同一个目录。组合包只在 Linux 上加载，需要 checkout 和 Node 22 与 DSH 在同一台机器上。完整的工具面、配置键和限制在 [docs/DSH-PLUGIN.zh.md](/docs/DSH-PLUGIN.zh.md)。
+在**插件**页选择**添加插件**，填入绝对目录 `/home/jw/workspace/dsh-hyprscope/plugins/dsh-hyprscope`；或者让 DSH 里的 agent 用 `plugin_manager` 的 `install_bundle` 装同一个目录。组合包只在 Linux 上加载，需要 checkout 和 Node 22 与 DSH 在同一台机器上。除了六个工具，它还会在 DSH 后台运行时启动桌面消息提示条，并接收快捷键发来的消息。完整的工具面、配置键和限制在 [docs/DSH-PLUGIN.zh.md](/docs/DSH-PLUGIN.zh.md)。
 
 ## 为什么会话要自己找
 

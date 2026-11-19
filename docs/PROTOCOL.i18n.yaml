@@ -45,11 +45,14 @@
   en: d6d9e890d5473be4
   zh: 59d5d1ac0b426afa
 /observation-and-capability-contract/8-control-lease-hyprscope-control/failsafe-shortcut:
-  en: 63279c8869657d5c
-  zh: ab7d7b3d0cd6041d
+  en: fb056301a1e154dc
+  zh: 662e350a5eafdc10
 /observation-and-capability-contract/8-control-lease-hyprscope-control/relationship-to-cua:
   en: 30a3728bf2222982
   zh: b204f500823b5d4a
 /observation-and-capability-contract/9-plan-execution-capability-declaration:
-  en: 2368a8a36c9851e7
-  zh: d21a0085b42dfa2c
+  en: 447af18029439533
+  zh: 8bd55452805c981c
+/observation-and-capability-contract/10-desktop-message-surface-hyprscope-message:
+  en: e8a05fd6b3ef0d0c
+  zh: d745435549153d0b

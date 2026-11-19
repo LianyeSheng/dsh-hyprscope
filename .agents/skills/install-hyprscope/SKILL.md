@@ -24,7 +24,7 @@ These are the product's safety model, not style preferences.
 
 - Consent cards are answered by the host. `control baseline --probe` only raises cards: the lease card for the measurement, then the acceptance card when the measurement widens the accepted baseline. Never click, script, synthesize, or pre-approve a card; never edit `baseline.json` or a pending draft by hand.
 - `control baseline --probe` is not read-only. On a machine with an accepted baseline, a re-probe that only narrows rewrites `baseline.json` in place and keeps the old approval, without a second card. Tell the host before running it, and never use it as a harmless check.
-- Desktop actions go only through the CLI's plan and lease path. Never call `hyprctl dispatch`, never add `--allow-locked` to get around a refusal, and never bypass the baseline gate. The only Hyprland configuration change this skill may make is the optional failsafe installer in stage 5, and only with the host's consent.
+- Desktop actions go only through the CLI's plan and lease path. Never call `hyprctl dispatch`, never add `--allow-locked` to get around a refusal, and never bypass the baseline gate. The only Hyprland configuration change this skill may make is the optional shortcut installer in stage 5 (failsafe and desktop-message binds), and only with the host's consent.
 - Use pnpm for this repository. Never `npm install` the project or its dependencies.
 - Do not regenerate `pnpm-lock.yaml`, edit `out/`, or commit build artifacts.
 - If a required check fails, stop and report it. Do not skip a gate to make the install look complete.
@@ -178,15 +178,24 @@ node bin/hyprscope.ts control baseline --show --json
 
 This shows `pending` (a draft from an earlier probe), `missingRequired`, `degraded`, and `reason`. A usable state with a stale verdict still needs a probe; the file is valid but no longer matches this machine. `--show` cannot compare a pending draft with the running compositor; only a probe does that. If you cannot show the draft was measured on this machine and configuration, re-probe rather than accept an old draft.
 
-### Failsafe shortcut (recommended)
+### Managed shortcuts (recommended)
 
-Install the `SUPER + ALT + ESC` hand-back before probing so the baseline measures it; installing it afterwards changes the bind count and makes the baseline stale.
+Install the `SUPER + ALT + ESC` hand-back and the `SUPER + ALT + M` desktop-message shortcut before probing so the baseline measures the final bind count; installing them afterwards changes the bind count and makes the baseline stale.
 
 ```sh
-node bin/hyprscope.ts control install-bind
+node bin/hyprscope.ts control install-bind                              # failsafe + desktop message
+node bin/hyprscope.ts control install-bind --message-key "SUPER + ALT + D"
 ```
 
-This edits the user's Hyprland configuration (with a timestamped backup), adds a marked Lua block, and runs `hyprctl reload`; ask first. It applies only to the user's desktop and expects the Lua config provider. If the host declines or the configuration is not Lua, skip it: the baseline reports `safety.failsafe-bind` as degraded, and the TTL, `done`, and the banner button still end control.
+This edits the user's Hyprland configuration (with a timestamped backup), adds a marked Lua block with both binds, verifies both descriptions, records the message key where the overlay reads it, and runs `hyprctl reload`; ask first. It applies only to the user's desktop and expects the Lua config provider. If the host declines or the configuration is not Lua, skip it: the baseline reports `safety.failsafe-bind` as degraded, and the TTL, `done`, and the banner button still end control. The desktop-message shortcut is optional: if the host only wants the failsafe, say that `--message-key` still installs both binds today, so the only way to omit it is to leave the whole installer out.
+
+The message shortcut runs `hyprscope message open`. Test the command itself (it is read-only and takes no lease) once the overlay runtime is installed:
+
+```sh
+node bin/hyprscope.ts message open --json
+```
+
+A result with `"dsh": "unavailable"` is expected while no `hyprscope` DSH Host is running; it still proves the overlay can start and the request file was written. `NO_SESSION` means this shell cannot reach the compositor, and `OVERLAY_FAILED` means Quickshell is missing.
 
 Before probing, confirm Quickshell is available (stage 2). Without it the consent card cannot appear and the probe fails with `OVERLAY_FAILED`.
 
@@ -233,6 +242,8 @@ After installation the profile has six `hyprscope_*` tools. If they do not appea
 
 **Restart DSH after editing the plugin.** The Host loads `plugins/dsh-hyprscope/index.js` into its own process and does not watch the file: the running Host keeps the old code and the old tool schemas. Without a restart, a parameter added to a tool definition is absent from the schema and passing it is silently ignored, and `doctor` keeps reporting the old `pluginVersion`. After restarting, call `hyprscope_observe(kind: "doctor")` and check that `pluginVersion` equals the checkout's `plugins/dsh-hyprscope/package.json` version and `cliPath` names the checkout's `bin/hyprscope.ts`; a mismatch means the Host is still on the stale in-memory copy.
 
+The same restart starts the desktop-message bridge when the profile exposes `sessionController` (the Web and Desktop bundles do) and `desktopMessage` is not disabled. To verify it after the restart, run `node bin/hyprscope.ts message open --json`: `"dsh": "available"` means the Host heartbeat is fresh and the composer request was written; the hint pill should be visible at the top-right with the key recorded by the installer. A headless profile has no hint because it has no `sessionController`, which is not a failure. If the overlay starts and then dies, the bridge notices on the next heartbeat and starts it again; check `$XDG_STATE_HOME/hyprscope/message/overlay.log` and `status.json` when it keeps failing. Do not leave the composer open while talking to the host; Esc closes it.
+
 If the plugin loads but every call fails naming `projectDir`, set `projectDir` in the profile's `hyprscope` row to this checkout instead of moving the checkout. Do not install DSH itself, and do not change the user's Hyprland configuration for the plugin.
 
 ### Capturing a consent card from an agent session
@@ -265,8 +276,10 @@ Environment: <distro>, Node <version>, pnpm <version>, Hyprland <version or "not
 Built: wl-globals, wl-inject, wl-scratch, wl-capture | or what failed
 Tests: pnpm test <pass/fail/skip counts>
 Failsafe: <installed|skipped>
+Desktop message: <installed|"SUPER + ALT + M" recorded|skipped>
 Baseline: <none|usable|degraded|incomplete>, freshness <fresh|stale|unverified|n/a>, approved <time or "—">, missing <capabilities or none>
 DSH plugin: <not detected|already installed|installed|needs restart|not verified>
+Desktop message bridge: <hint visible|no sessionController|disabled by config|not verified>
 Needs you: <approve probe card / approve acceptance card / install packages / restart DSH / refresh stale baseline / fix a lockfile mismatch / nothing>
 ```
 

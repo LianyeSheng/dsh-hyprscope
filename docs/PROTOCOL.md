@@ -240,7 +240,7 @@ The heartbeat `heartbeat.json` is refreshed every 500ms by the requester/holder;
 
 ### Failsafe shortcut
 
-`hyprscope control install-bind` appends a marked `hl.bind(...)` to `~/.config/hypr/hyprland.lua`; its argument is `hl.dsp.exec_cmd("<绝对路径 node> <绝对路径 bin/hyprscope.ts> control panic --source shortcut")`, plus `description = "hyprscope failsafe: revoke desktop control"`. The installation flow: back up the configuration → write the block → `hyprctl reload` → verify through the `description` in `hyprctl binds -j` → on failure restore the backup and report `BIND_FAILED`.
+`hyprscope control install-bind` appends a marked block with two `hl.bind(...)` calls to `~/.config/hypr/hyprland.lua`. The failsafe bind's argument is `hl.dsp.exec_cmd("<absolute node> <absolute bin/hyprscope.ts> control panic --source shortcut")`, plus `description = "hyprscope failsafe: revoke desktop control"`. The desktop-message bind (default `SUPER + ALT + M`, `--message-key` overrides it) runs `hyprscope message open` and carries `description = "hyprscope message: open the desktop composer"`. The installation flow: check neither key is taken → back up the configuration → write the block → `hyprctl reload` → verify both descriptions in `hyprctl binds -j` → record the message key in the message state directory → on failure restore the backup and report `BIND_FAILED`.
 
 Write the key name in Hyprland's spelling (`Escape`, not `ESC`); in 0.57 `hl.bind` records the internal index rather than the command string in `arg`, so verification can only look at `description`.
 
@@ -250,7 +250,7 @@ CUA's `click` / `typeText` and other methods are still unimplemented, and `getCa
 
 ## 9. Plan execution (capability declaration)
 
-`hyprscope` remains read-only. The only command that changes desktop state is `hyprscope control run <plan.json | ->`: it must hold a lease from §8 that is bound to the submitted plan (`planBound: true`). `hyprscope control install-bind` only writes the Hyprland configuration file and does not change desktop state; it is the sole exception to this rule.
+`hyprscope` remains read-only. The only command that changes desktop state is `hyprscope control run <plan.json | ->`: it must hold a lease from §8 that is bound to the submitted plan (`planBound: true`). `hyprscope control install-bind` only writes the Hyprland configuration file and does not change desktop state, and the `hyprscope message` surface only paints an overlay and writes message files, so neither is a control path.
 
 Plan execution, interference prompts, the recovery model and fault records are in `docs/PLAN.md`; whether these capabilities still hold after switching machines or versions is in [COMPATIBILITY.md](/docs/COMPATIBILITY.md) (the capability baseline, implemented and gated at run time).
 
@@ -274,6 +274,11 @@ The injection helper additionally requires a lease proof: `--lease-state <state.
 
 Lua expressions are assembled by the executor from allowlisted templates, with variables format-checked first (window address `0x…`, workspace name `[A-Za-z0-9._-]`, coordinates are integers); no string is passed through verbatim. If the compositor returns `error:` or `warning:`, it counts as a failure.
 
-Explicitly not provided: `exec`, `keyword`, `kill`, `plugin`, arbitrary dispatchers, arbitrary Lua, shell commands, configuration changes. The only `hyprctl reload` is in `install-bind`, used solely to make the failsafe shortcut take effect.
+Explicitly not provided: `exec`, `keyword`, `kill`, `plugin`, arbitrary dispatchers, arbitrary Lua, shell commands, configuration changes. The only `hyprctl reload` is in `install-bind`, used solely to make the managed shortcuts take effect.
 
 The plan record (`out/runs/<runId>/`) is not part of the observation contract; its fields evolve with the executor. Only the fault-record fields listed in `docs/PLAN.md` carry a stability commitment to callers.
+## 10. Desktop-message surface (`hyprscope message`)
+
+`hyprscope message` is neither observation nor control: it owns the hint/composer overlay and the files a running DSH Host reads. It takes no lease, changes no desktop state and contributes no observation fields.
+
+`open` (`--json`) returns `{ command: "open", dir, overlay: { pid, log }, request: { nonce, at }, dsh: "available" | "unavailable" }`; `overlay` returns `{ command: "overlay", dir, overlay }`; `stop` returns `{ command: "stop", dir }`. `--lang zh|en` selects the language of the overlay this command starts (default `zh`, or `HYPRSCOPE_LANG`). Files live in `$XDG_STATE_HOME/hyprscope/message` (or `HYPRSCOPE_MESSAGE_DIR`): the Host writes `status.json`, `ack.json`, `last-session.json` and `overlay.log`; the CLI writes `open.json`, `quit.json` and `shortcut.txt`; and the overlay writes one JSON document per message into `outbox/`. The overlay is a Quickshell process started with `-n`, so repeated calls keep one instance; a missing compositor is `NO_SESSION` and a missing Quickshell is `OVERLAY_FAILED`. The DSH plugin half and the injected message shape are in [docs/DSH-PLUGIN.md](/docs/DSH-PLUGIN.md).

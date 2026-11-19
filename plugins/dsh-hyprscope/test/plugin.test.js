@@ -853,7 +853,7 @@ test('invalid config throws in apply before any tool is registered', (t) => {
 
 test('apply registers the hyprscope systemPrompt section when the service is available', (t) => {
   const harness = makeHarness(t)
-  assert.deepEqual(harness.injectCalls, [['systemPrompt']])
+  assert.deepEqual(harness.injectCalls, [['systemPrompt'], ['sessionController']])
   assert.equal(harness.sections.length, 1)
   const section = harness.sections[0]
   assert.equal(section.name, 'hyprscope')

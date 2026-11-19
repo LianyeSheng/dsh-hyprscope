@@ -24,8 +24,8 @@ Commands:
   ops              List the supported ops and their fields (--json for the catalog)
   status           Print the current lease
   panic            Emergency release used by the failsafe shortcut; not an agent workflow step
-  install-bind     Install the SUPER + ALT + ESC failsafe into the Hyprland config
-  uninstall-bind   Remove the failsafe bind and its generated Lua file
+  install-bind     Install the failsafe and desktop-message shortcuts into the Hyprland config
+  uninstall-bind   Remove the managed shortcuts and the generated Lua file
   baseline         Measure this machine's capabilities and ask the host to accept them
   desktop          Start, attach, inspect, or stop an agent-dedicated desktop
 
@@ -33,6 +33,7 @@ Options:
   --desktop <t>     user (default), agent, or external
   --consent <secs>  How long the consent card waits (default 45)
   --key <combo>     Failsafe key for install-bind (default "SUPER + ALT + ESC")
+  --message-key <combo>  Desktop-message key for install-bind (default "SUPER + ALT + M")
   --source <name>   Origin recorded in the lease (default: agent or host)
   --max-resumes <n> Recovery attempts one run may use (default 1, max 3)
   --dry-run         Validate the plan without asking
@@ -55,6 +56,7 @@ export interface LeaseCliOptions {
   version: boolean
   consentSec?: number
   key?: string
+  messageKey?: string
   source?: string
   desktop?: string
   runtimeDir?: string
@@ -122,7 +124,7 @@ async function readPlanInput(io: Io): Promise<string> {
 }
 
 const VALUE_OPTIONS: Record<string, keyof LeaseCliOptions> = {
-  '--consent': 'consentSec', '--key': 'key',
+  '--consent': 'consentSec', '--key': 'key', '--message-key': 'messageKey',
   '--source': 'source', '--max-resumes': 'maxResumes', '--desktop': 'desktop',
   '--runtime-dir': 'runtimeDir', '--signature': 'signature', '--size': 'size', '--consent-source': 'consentSource',
   '--lang': 'lang',
@@ -406,16 +408,18 @@ export async function main(argv: string[], io: Io = { stdout: process.stdout, st
       case 'install-bind': {
         if (targetOf(options) !== 'user') throw usage('install-bind only applies to the user\'s desktop')
         const user = await resolveFor(options, 'user')
-        const result = await installBind({ key: options.key, session: user.session })
-        print(io, result, options.json, value => `installed ${value.key} → ${value.command}`
-          + `${value.verified ? '' : ' (not observed in hyprctl binds — check the config)'}`)
+        const result = await installBind({ key: options.key, messageKey: options.messageKey, session: user.session })
+        print(io, result, options.json, value => `installed failsafe ${value.key} → ${value.command}`
+          + `\ninstalled desktop message ${value.messageKey} → ${value.messageCommand}`
+          + `\nshortcut recorded in ${value.shortcutFile}`
+          + `${value.verified && value.messageVerified ? '' : ' (not all binds were observed in hyprctl binds — check the config)'}`)
         return 0
       }
       case 'uninstall-bind': {
         if (targetOf(options) !== 'user') throw usage('uninstall-bind only applies to the user\'s desktop')
         const user = await resolveFor(options, 'user')
         const result = await uninstallBind({ session: user.session })
-        print(io, result, options.json, value => value.removed ? 'removed the failsafe bind' : 'no hyprscope block found')
+        print(io, result, options.json, value => value.removed ? 'removed the managed hyprscope shortcuts' : 'no hyprscope block found')
         return 0
       }
       case 'baseline': {

@@ -6,8 +6,8 @@
 # After editing either side, re-record the pair:
 #   python3 .agents/se/scripts/docs/verify_translation_pairing.py --write <pair>
 /dsh-hyprscope:
-  en: 9bf9d2c65fb10b1f
-  zh: 29bb42e996b106a7
+  en: d9d7524467f1fea2
+  zh: 9d7175f5571974a3
 /dsh-hyprscope/quick-start:
   en: 8288b47ad7fd0f66
   zh: b5ef2fd5a95e2037
@@ -20,15 +20,18 @@
 /dsh-hyprscope/features/agent-desktop:
   en: e4ea26c70a066e89
   zh: 2aaa6ce5f199c419
+/dsh-hyprscope/features/desktop-messages:
+  en: dd5b07bf812b2b3d
+  zh: f07fe52806aaf333
 /dsh-hyprscope/features/batch-execution:
   en: 8c37ff8f898cb5f8
   zh: c48370a4b08c38d3
 /dsh-hyprscope/features/commands:
-  en: de70bf12d2412d6c
-  zh: 30e0e95dd66910f1
+  en: 3a993c1e635b002d
+  zh: 885616c0bac9d318
 /dsh-hyprscope/features/dsh-plugin:
-  en: 9e9755489c3a1f84
-  zh: 369f98dc5a11c0c9
+  en: c8e4784e06c70dc6
+  zh: abbbba76afe0b4d2
 /dsh-hyprscope/why-the-session-has-to-be-found-on-its-own:
   en: c1a12fbd57bdbc86
   zh: 50906ad1f66081f8

@@ -240,7 +240,7 @@ monitoradded>>HDMI-A-1
 
 ### 兜底快捷键
 
-`hyprscope control install-bind` 在 `~/.config/hypr/hyprland.lua` 追加带标记的 `hl.bind(...)`，参数是 `hl.dsp.exec_cmd("<绝对路径 node> <绝对路径 bin/hyprscope.ts> control panic --source shortcut")`，并带 `description = "hyprscope failsafe: revoke desktop control"`。安装流程：备份配置 → 写块 → `hyprctl reload` → 用 `hyprctl binds -j` 的 `description` 验证 → 失败则恢复备份并报 `BIND_FAILED`。
+`hyprscope control install-bind` 在 `~/.config/hypr/hyprland.lua` 追加带标记的块，里面有两处 `hl.bind(...)`。兜底 bind 的参数是 `hl.dsp.exec_cmd("<绝对路径 node> <绝对路径 bin/hyprscope.ts> control panic --source shortcut")`，并带 `description = "hyprscope failsafe: revoke desktop control"`。桌面消息 bind（默认 `SUPER + ALT + M`，可用 `--message-key` 改）运行 `hyprscope message open`，带 `description = "hyprscope message: open the desktop composer"`。安装流程：先检查两个键都没被占用 → 备份配置 → 写块 → `hyprctl reload` → 用 `hyprctl binds -j` 的 `description` 验证两处 → 把消息键记进消息状态目录 → 任一步失败都恢复备份并报 `BIND_FAILED`。
 
 绑定的键名要写成 Hyprland 的拼写（`Escape` 而不是 `ESC`）；`hl.bind` 在 0.57 里记录的 `arg` 是内部索引而不是命令字符串，所以验证只能看 `description`。
 
@@ -250,7 +250,7 @@ CUA 的 `click` / `typeText` 等方法仍然没有实现，`getCapabilities().ac
 
 ## 9. 计划执行（能力声明）
 
-`hyprscope` 仍然只读。改变桌面状态的唯一命令是 `hyprscope control run <plan.json | ->`：它必须持有 §8 的一份绑定了提交计划（`planBound: true`）的租约。`hyprscope control install-bind` 只写 Hyprland 配置文件，不改变桌面状态，是这条规则的唯一例外。
+`hyprscope` 仍然只读。改变桌面状态的唯一命令是 `hyprscope control run <plan.json | ->`：它必须持有 §8 的一份绑定了提交计划（`planBound: true`）的租约。`hyprscope control install-bind` 只写 Hyprland 配置文件，不改变桌面状态；`hyprscope message` 面只画浮层、写消息文件，同样不是控制路径。
 
 计划执行、干扰询问、恢复模型和 fault 记录见 `docs/PLAN.md`；换机器、换版本之后这些能力还成不成立，见 [COMPATIBILITY.md](/docs/COMPATIBILITY.zh.md)（能力基线，已实现并在运行时生效）。
 
@@ -274,6 +274,11 @@ CUA 的 `click` / `typeText` 等方法仍然没有实现，`getCapabilities().ac
 
 Lua 表达式由执行器按白名单模板拼接，变量先过格式校验（窗口地址 `0x…`、工作区名 `[A-Za-z0-9._-]`、坐标为整数），不做字符串透传；compositor 返回 `error:` 或 `warning:` 都按失败处理。
 
-明确不提供：`exec`、`keyword`、`kill`、`plugin`、任意 dispatcher、任意 Lua、shell 命令、配置修改。唯一的 `hyprctl reload` 在 `install-bind` 里，只用于让兜底快捷键生效。
+明确不提供：`exec`、`keyword`、`kill`、`plugin`、任意 dispatcher、任意 Lua、shell 命令、配置修改。唯一的 `hyprctl reload` 在 `install-bind` 里，只用于让受管快捷键生效。
 
 计划记录（`out/runs/<runId>/`）不是观察契约的一部分，字段随执行器演进；只有 `docs/PLAN.md` 里列出的 fault 记录字段对调用方有稳定性承诺。
+## 10. 桌面消息面（`hyprscope message`）
+
+`hyprscope message` 既不是观察也不是控制：它负责提示条/输入浮层，以及运行中的 DSH Host 读取的那些文件。它不拿租约、不改桌面状态，也不贡献任何观察字段。
+
+`open`（`--json`）返回 `{ command: "open", dir, overlay: { pid, log }, request: { nonce, at }, dsh: "available" | "unavailable" }`；`overlay` 返回 `{ command: "overlay", dir, overlay }`；`stop` 返回 `{ command: "stop", dir }`。`--lang zh|en` 选择这条命令启动的浮层语言（默认 `zh`，或 `HYPRSCOPE_LANG`）。文件在 `$XDG_STATE_HOME/hyprscope/message`（或 `HYPRSCOPE_MESSAGE_DIR`）：Host 写 `status.json`、`ack.json`、`last-session.json` 和 `overlay.log`；CLI 写 `open.json`、`quit.json` 和 `shortcut.txt`；浮层把每条消息写成 `outbox/` 里的一份 JSON 文档。浮层是用 `-n` 启动的 Quickshell 进程，重复调用也只保留一个实例；没有 compositor 是 `NO_SESSION`，没有 Quickshell 是 `OVERLAY_FAILED`。插件那一半和注入消息的形状见 [docs/DSH-PLUGIN.zh.md](/docs/DSH-PLUGIN.zh.md)。

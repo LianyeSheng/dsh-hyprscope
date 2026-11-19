@@ -14,7 +14,7 @@ Every in-scope document appears in this list; the consistency check fails when a
 4. [PLAN.md](/docs/PLAN.md) — plan schema, preconditions and expectations, ops, interference policy, recovery, fault record, consent binding, limits and non-goals.
 5. [BASELINE.md](/docs/BASELINE.md) and [COMPATIBILITY.md](/docs/COMPATIBILITY.md) — why control refuses without a measured baseline: state computation, reader rules, human approval and narrowing, drift and staleness.
 6. [DESKTOP.md](/docs/DESKTOP.md) — why an agent gets its own nested compositor: addressing, lifecycle, directories, consent, failures and what it is not.
-7. [DSH-PLUGIN.md](/docs/DSH-PLUGIN.md) — the agent-facing wrapper and why it stays thin: the six tools and how the safety boundary holds.
+7. [DSH-PLUGIN.md](/docs/DSH-PLUGIN.md) — the agent-facing wrapper and why it stays thin: the six tools, the desktop-message hint and shortcut, and how the safety boundary holds.
 8. [VERIFICATION.md](/docs/VERIFICATION.md) — one recorded real-machine verification; evidence for that machine, not an ongoing guarantee.
 
 ## 2. Where the motivation lives
@@ -30,4 +30,4 @@ Design intent is written down, not left implicit in the code. Look for the secti
 | plan language | `docs/PLAN.md` | `src/plan/` |
 | capability baseline | `docs/BASELINE.md`, `docs/COMPATIBILITY.md` | `src/compat/` |
 | agent desktop | `docs/DESKTOP.md` | `src/desktop/` |
-| DSH plugin | `docs/DSH-PLUGIN.md` | `plugins/dsh-hyprscope/` |
+| DSH plugin and desktop messages | `docs/DSH-PLUGIN.md` | `plugins/dsh-hyprscope/`, `src/message/`, `overlay/message/` |

@@ -106,7 +106,7 @@ hyprscope control run <plan.json> [--consent 45] [--max-resumes 1] [--dry-run] [
 hyprscope control ops [--json]          # the operation catalog a plan can use
 hyprscope control status [--json]       # phase, remaining time, holder/overlay pid, stale, recovery progress
 hyprscope control panic [--json]        # emergency revoke (the shortcut and `desktop stop` run it)
-hyprscope control install-bind [--key "SUPER + ALT + ESC"]
+hyprscope control install-bind [--key "SUPER + ALT + ESC"] [--message-key "SUPER + ALT + M"]
 hyprscope control uninstall-bind
 hyprscope control baseline --probe [--read-only] [--json]   # measure this machine; a widening result asks the host and writes the accepted baseline on Allow
 hyprscope control baseline --show [--diff] [--json]         # review the accepted baseline and any draft
@@ -126,7 +126,7 @@ Every `hyprscope control ...` command also accepts `--lang <zh|en>`: it selects 
 
 Exit codes: `run` exits 0 when the plan completes, 1 when it faults, is revoked, or consent is denied or times out; invalid arguments exit 2. The detached lease holder is an internal module entry started by the lease code, not a CLI command and not part of the documented surface.
 
-`install-bind` appends a marked `hl.bind(...)` block to `~/.config/hypr/hyprland.lua`, first makes a timestamped backup, then runs `hyprctl reload`, then confirms through the `description` field of `hyprctl binds -j` that the binding really took effect; if it did not, it rolls back the configuration and reports `BIND_FAILED`. `uninstall-bind` removes the block and reloads. Both the new `hyprscope` marker and the historical `hyprlease` marker are accepted when replacing or uninstalling; a bind installed before the CLI merge points at the deleted `bin/hyprlease.ts` and has to be reinstalled.
+`install-bind` appends a marked block with two `hl.bind(...)` calls to `~/.config/hypr/hyprland.lua`: the failsafe (`control panic --source shortcut`) and the desktop-message shortcut (`hyprscope message open`, default `SUPER + ALT + M`, `--message-key` overrides it). It first checks neither key is taken, makes a timestamped backup, runs `hyprctl reload`, then confirms both `description` fields in `hyprctl binds -j`; if either is missing it rolls the configuration back and reports `BIND_FAILED`. It also records the message key in the message state directory the overlay reads. `uninstall-bind` removes the block, the shortcut record and the generated Lua file, and reloads. Both the new `hyprscope` marker and the historical `hyprlease` marker are accepted when replacing or uninstalling; a bind installed before the CLI merge points at the deleted `bin/hyprlease.ts` and has to be reinstalled. The desktop-message shortcut is not a control path: it opens the composer and the message is typed through the Host's prompt admission. Because installing or removing either bind changes the bind count the capability baseline records, an accepted baseline becomes stale after `install-bind`/`uninstall-bind`; re-probe before the next control run.
 
 Why inline the bind into `hyprland.lua` instead of a separate file plus `dofile`: on the test machine's 0.57 Lua configuration, indirect registration through `dofile`/`require` does not take effect on reload, and only an inline `hl.bind` is reliable (measured).
 

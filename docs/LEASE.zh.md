@@ -106,7 +106,7 @@ hyprscope control run <plan.json> [--consent 45] [--max-resumes 1] [--dry-run] [
 hyprscope control ops [--json]          # the operation catalog a plan can use
 hyprscope control status [--json]       # phase, remaining time, holder/overlay pid, stale, recovery progress
 hyprscope control panic [--json]        # emergency revoke (the shortcut and `desktop stop` run it)
-hyprscope control install-bind [--key "SUPER + ALT + ESC"]
+hyprscope control install-bind [--key "SUPER + ALT + ESC"] [--message-key "SUPER + ALT + M"]
 hyprscope control uninstall-bind
 hyprscope control baseline --probe [--read-only] [--json]   # measure this machine; a widening result asks the host and writes the accepted baseline on Allow
 hyprscope control baseline --show [--diff] [--json]         # review the accepted baseline and any draft
@@ -126,7 +126,7 @@ hyprscope control desktop stop [--json]
 
 退出码：`run` 计划完成为 0，fault、被撤销、同意被拒绝或超时为 1，参数错误为 2。分离的 holder 是租约代码启动的内部模块入口，不是 CLI 命令，也不属于对外文档化的命令面。
 
-`install-bind` 会往 `~/.config/hypr/hyprland.lua` 追加一段带标记的 `hl.bind(...)`，先生成带时间戳的备份，然后 `hyprctl reload`，再通过 `hyprctl binds -j` 的 `description` 字段确认绑定真的生效；没生效会回滚配置并报 `BIND_FAILED`。`uninstall-bind` 删除这一段并重新加载。替换或卸载时同时接受新的 `hyprscope` 标记和历史 `hyprlease` 标记；CLI 合并之前安装的 bind 指向已删除的 `bin/hyprlease.ts`，需要重装。
+`install-bind` 会往 `~/.config/hypr/hyprland.lua` 追加一段带标记的块，里面有两处 `hl.bind(...)`：兜底键（`control panic --source shortcut`）和桌面消息键（`hyprscope message open`，默认 `SUPER + ALT + M`，可用 `--message-key` 改）。它先检查两个键都没被占用，生成带时间戳的备份，然后 `hyprctl reload`，再通过 `hyprctl binds -j` 的两个 `description` 字段确认绑定真的生效；缺一个就回滚配置并报 `BIND_FAILED`。它还会把消息键记进浮层读取的消息状态目录。`uninstall-bind` 删除这一段、快捷键记录和生成的 Lua 文件，然后重新加载。替换或卸载时同时接受新的 `hyprscope` 标记和历史 `hyprlease` 标记；CLI 合并之前安装的 bind 指向已删除的 `bin/hyprlease.ts`，需要重装。桌面消息快捷键不是控制路径：它只打开输入框，消息通过 Host 的 prompt 准入发出。安装或移除任一 bind 都会改变能力基线记录的 bind 数量，所以跑过 `install-bind`/`uninstall-bind` 之后已验收的基线会变 stale；下一次控制运行前要重新 probe。
 
 为什么把 bind 内联在 `hyprland.lua` 里，而不是单独文件加 `dofile`：在测试机的 0.57 Lua 配置里，`dofile`/`require` 的间接注册在 reload 时不生效，内联 `hl.bind` 才可靠（实测过）。
 

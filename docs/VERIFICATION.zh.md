@@ -290,6 +290,15 @@ node bin/hyprscope.ts screenshot --window-app foot --output .tmp/ambiguous.png
 
 本轮自动检查：`node --test test/window-selector.test.ts test/toplevel.test.ts test/screenshot.test.ts test/cli.test.ts test/live.test.ts` 通过 53 个测试（6 + 8 + 17 + 14 + 8），`pnpm run typecheck` 干净。本对文档已用双语配对门禁重新记录。
 
+## 桌面消息、提示条与快捷键（2026-11-19）
+
+桌面消息面在同一台机器上演练过（Hyprland 0.57.2、Quickshell 0.3.2、2560×1440）。
+
+- 渲染：用夹具 `status.json` 运行 `quickshell -p overlay/message -n`，右上角画出了提示胶囊（`hyprctl layers` 报告 `hyprscope-message-hint`）；没有 `shortcut.txt` 时胶囊写“快捷键未安装”，而不是拿一个没绑上的键冒充；把 `SUPER + ALT + M` 写进去后，胶囊显示的就是这个键。写一份 `open.json` 请求后，输入框出现在中央，文本框获得焦点。截图：`out/hint-no-shortcut.png`、`out/message-hint.png`、`out/message-composer.png`。真实运行时输入框确实占着键盘：打开期间输入法把操作者的按键送进了文本框，这正是预期的独占焦点，也是提交时要先收起浮层的原因。一个调用同一提交函数的调试副本把 `{"id":"mwn831pa-ikeqko","text":"hello from the desktop composer","at":"…"}` 写进了 `outbox/msg-mwn831pa-ikeqko.json`，也就是插件消费的那份文档。
+- CLI：`node bin/hyprscope.ts message open --json --lang en` 返回 `{command, dir, overlay: {pid, log}, request, dsh}`，写下 `open.json`，并以 `WAYLAND_DISPLAY=wayland-1`、真实的 `XDG_RUNTIME_DIR` 和指定语言启动浮层；`message stop` 写下 `quit.json`；没有 compositor 时 `message overlay` 以 `NO_SESSION` 失败，缺 Quickshell 时以 `OVERLAY_FAILED` 失败。
+- 快捷键：`installBind` 只对着假 `hyprctl` 演练过（两个 `description` 都验证、消息键写进 `shortcut.txt`、冲突和相同键被拒绝）。本轮没有改真实的 `~/.config/hypr/hyprland.lua`，所以两条 bind 还没有真机 `hyprctl binds -j` 条目。
+- 插件桥：单元测试用假 Cordis 上下文和假 `bin/hyprscope.ts` 驱动，覆盖激活与状态、启动时浮层重试、会话跟踪（只跟根会话）、消费消息文档、附带截图、`sessionController.prompt` 注入、图片被拒时的不带图重试、错误回执和释放。浮层在成功启动后被杀掉、以及心跳把它重新拉起，只用报告死 pid 的假 CLI 做过单元测试，没有真的去杀一个运行中的 Quickshell。没有对真正在运行的 DSH Host 做注入：当前运行的 Host 早于这次改动，本轮也没有重启它，因此 `sessionController.prompt` 的进程内调用由它的公开方法契约和假服务确立，而不是真机消息。
+
 ## 没有覆盖到的
 
 多显示器、多 Hyprland 实例、多 seat、锁屏状态下的行为，这份记录里都没有实测条目，也没做跨版本对比；租约的物理输入拦截能力本来就不存在（见 [LEASE.zh.md](/docs/LEASE.zh.md)）。要下结论得在对应环境里再跑。

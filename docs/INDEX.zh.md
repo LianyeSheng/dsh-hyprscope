@@ -14,7 +14,7 @@
 4. [PLAN.md](/docs/PLAN.zh.md) —— 计划 schema、前提与预期、操作、干扰策略、恢复、fault 记录、同意绑定、限制与非目标。
 5. [BASELINE.md](/docs/BASELINE.zh.md) 和 [COMPATIBILITY.md](/docs/COMPATIBILITY.zh.md) —— 没有测量过的基线为什么拒绝控制：状态计算、读取规则、人工审批与收窄、漂移与陈旧判定。
 6. [DESKTOP.md](/docs/DESKTOP.zh.md) —— agent 为什么拥有自己的嵌套 compositor：目标选择与寻址、生命周期、目录、同意、失败处理，以及它不是什么。
-7. [DSH-PLUGIN.md](/docs/DSH-PLUGIN.zh.md) —— 面向 agent 的封装以及它为什么保持薄：六个工具，以及安全边界如何成立。
+7. [DSH-PLUGIN.md](/docs/DSH-PLUGIN.zh.md) —— 面向 agent 的封装以及它为什么保持薄：六个工具、桌面消息提示与快捷键，以及安全边界如何成立。
 8. [VERIFICATION.md](/docs/VERIFICATION.zh.md) —— 一次真机验证记录；它是那台机器上的证据，不是长期保证。
 
 ## 2. 动机写在哪里
@@ -30,4 +30,4 @@
 | 计划语言 | `docs/PLAN.md` | `src/plan/` |
 | 能力基线 | `docs/BASELINE.md`、`docs/COMPATIBILITY.md` | `src/compat/` |
 | agent 桌面 | `docs/DESKTOP.md` | `src/desktop/` |
-| DSH 插件 | `docs/DSH-PLUGIN.md` | `plugins/dsh-hyprscope/` |
+| DSH 插件与桌面消息 | `docs/DSH-PLUGIN.md` | `plugins/dsh-hyprscope/`、`src/message/`、`overlay/message/` |

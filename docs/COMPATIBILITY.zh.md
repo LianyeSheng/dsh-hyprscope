@@ -219,7 +219,7 @@ effective(cap) =
 ```sh
 pnpm run build:probe && pnpm run build:inject   # compile the probe and the injection helper
 pnpm run build:scratch                          # compile the scratch client the probe measures against
-node bin/hyprscope.ts control install-bind              # failsafe shortcut (optional)
+node bin/hyprscope.ts control install-bind              # managed shortcuts: failsafe + desktop message (optional)
 node bin/hyprscope.ts control baseline --probe          # shows the lease card, measures, and on a widening result asks the host and writes the accepted baseline on Allow
 node bin/hyprscope.ts control baseline --show --diff    # human review: what is supported, what is missing, where the evidence is
 node bin/hyprscope.ts control run plan.json             # normal use afterwards

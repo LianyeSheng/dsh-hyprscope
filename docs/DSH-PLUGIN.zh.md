@@ -4,7 +4,7 @@
 
 `plugins/dsh-hyprscope/` 是本项目原生、开箱即用的 DSH Host 插件组合包（bundle），把 hyprscope 的命令行变成模型可以调用的六个工具。DSH 会话不用再拼 `node bin/hyprscope.ts ...` 这样的 shell 命令：记住仓库路径、参数顺序和 `--json`，再自己解析输出，都是负担。它会带类型化参数调用 `hyprscope_observe`、`hyprscope_screenshot`、`hyprscope_events`、`hyprscope_plan`、`hyprscope_baseline` 或 `hyprscope_desktop`，拿回一个解析好的对象。
 
-这个组合包只是一层薄包装，不是第二份实现：每次工具调用都以子进程运行 `node bin/hyprscope.ts <command> --json`，参数用 argv 数组传递，不经过 shell。所有门控都留在 CLI 里，插件没有加任何绕开它们的办法。它只有 Host 端：只注册工具，不带页面。
+这个组合包只是一层薄包装，不是第二份实现：每次工具调用都以子进程运行 `node bin/hyprscope.ts <command> --json`，参数用 argv 数组传递，不经过 shell。所有门控都留在 CLI 里，插件没有加任何绕开它们的办法。它只有 Host 端：只注册工具，不带页面。它还带一条桌面消息桥：一个悬浮提示和一个快捷键，把桌面上写好的一条消息（通常附上发送那一刻的桌面截图）交给会话，不需要把浏览器页面摆在前面。
 
 ## 它解决什么问题
 
@@ -67,6 +67,20 @@ Host 把 `index.js` 加载进自己的进程，并不会监视这个文件。改
 
 三个只读工具标记为可以并发调用，其余三个不行。结果太长时会压缩：给模型看的文本受 `maxRenderChars` 限制，超长的列表只回来前几项，外加 `total` 和 `omitted` 计数。压缩后的 `doctor` 报告会保留稳定段落，其中包括 `pluginVersion` 和 `cliPath`。
 
+## 桌面消息、悬浮提示和快捷键
+
+组合包还带一条与工具相互独立的桌面消息桥。当 Host profile 提供 `sessionController` 服务、且没有关掉 `desktopMessage` 时，插件激活后会写心跳，并启动 `overlay/message/` 里的 Quickshell 浮层：一个很小的提示条，说明 DSH 正在后台运行、hyprscope 已启用；另有收一条桌面消息的输入框。headless profile 没有 `sessionController`，因此只是没有提示条，工具不受影响。
+
+快捷键是 compositor 的 bind，由 `hyprscope control install-bind` 和兜底快捷键一起装一次（默认 `SUPER + ALT + M`，可用 `--message-key` 改）。安装器会把规范化后的键写进消息状态目录，提示条显示的因此是真正绑上的键；还没装时，提示条写的是快捷键未安装，而不是一个按了没反应的键。插件自己不调用 `hyprctl`，也不改 compositor 配置。
+
+按下快捷键会运行 `hyprscope message open`：浮层没在跑就先启动它，并写一份 `open.json` 请求。提交时输入框先收起所有浮层，把一份 JSON 文档写进 `outbox/`，然后等回执。桥只消费这份文档一次，在 `messageAttachScreenshot` 为真时截一张布局，再通过 Host 公开的 `sessionController.prompt` 以 `mode: "queue"` 注入一条普通用户消息。用户写的文字就是消息内容，截图作为内联 PNG 块一起走；路由或会话拒绝图片时，桥会不带图重试一次。于是 agent 看到的是用户的原话，正常情况下还有发送那一刻的桌面截图；没有图时，它可以先调用 `hyprscope_screenshot`（layout）或 `hyprscope_observe` 再回答。系统提示词段落会把这一点讲清楚。
+
+目标会话的优先级是：配置了 `messageSessionId` 就用它；否则用 Host 最近观察到的根会话（跨重启记在 `last-session.json`）；否则用最近活跃的可见会话；再否则新建一个。子 agent 会话永远不会成为目标。`ack.json` 里的回执告诉浮层消息是否被接收，提示条会短暂显示“已发送”。
+
+共享状态在 `$XDG_STATE_HOME/hyprscope/message`（默认 `~/.local/state/hyprscope/message`；`HYPRSCOPE_MESSAGE_DIR` 可覆盖）：`status.json`、`open.json`、`ack.json`、`quit.json`、`shortcut.txt`、`outbox/`、`last-session.json` 和 `overlay.log`。CLI 面是 `hyprscope message open|overlay|stop`（`--json`、`--lang`）。这些都不拿租约、不改桌面状态、也不绕过任何工具门控：它只画一个浮层、写文件，并通过 Host 自己的 prompt 准入敲一条用户消息。
+
+浮层需要 Quickshell 和一个能连上的 Hyprland 会话，消息路径需要暴露 `sessionController` 的 profile（Web 和 Desktop 组合包都有）。浮层起不来时工具照常工作，`status.json` 会记下错误；心跳会按退避重试，已经启动成功之后死掉的浮层也会被发现并重启。
+
 ## 截取单个窗口
 
 `hyprscope_screenshot` 可以只截取某一个窗口，而不是整个布局、某个输出或一个区域。在 `window` 里提供恰好一个选择器：
@@ -128,11 +142,17 @@ hyprscope_screenshot(scope: "layout", output: "/tmp/hyprscope-card.png")
 | `screenshotDir` | `<OS temp directory>/dsh-hyprscope-screenshots` | 截图的默认目录；不存在时创建 |
 | `attachScreenshotImage` | `true` | 会话有附件存储时，把截到的 PNG 挂到工具结果上 |
 | `maxRenderChars` | `7000` | 单个工具结果的文本预算，低于 profile 的 8192 字符裁剪阈值 |
+| `desktopMessage` | `true` | 启动悬浮提示并接收桌面消息；`false` 保留工具、去掉这条桥 |
+| `messageLanguage` | `zh` | 提示条和输入浮层的语言：`zh` 或 `en` |
+| `messageAttachScreenshot` | `true` | 每条桌面消息都截一张布局，作为内联图片发出 |
+| `messageSessionId` | 未设置 | 把所有桌面消息固定到某个会话；省略则用最近活跃的根会话 |
+| `messageDir` | `$XDG_STATE_HOME/hyprscope/message` | CLI 与浮层共享的状态目录；回退值是 `HYPRSCOPE_MESSAGE_DIR` |
 
 两点需要注意：
 
 - 配置在插件激活时校验：值的类型不对或超出范围会让激活失败，DSH 会把插件报成激活失败，而不是带着一个悄悄错掉的值继续运行。
 - `projectDir` 会在每次调用时重新检查。里面没有 `bin/hyprscope.ts` 时，插件照样加载，但每次调用都会失败，错误信息会点名这个目录；CLI 出现在那里之后，调用不用重载就能开始工作。组合包或 CLI 不在默认位置时设置 `projectDir`。
+- `messageDir`（或 `HYPRSCOPE_MESSAGE_DIR`）是三个进程之间的契约：Host、快捷键运行的 CLI、浮层。只在插件上配一个自定义目录，`hyprscope message open` 仍会写默认目录，输入框就不会出现；请给 compositor 会话也导出同一个环境变量。
 
 ## 安全边界如何成立
 
@@ -153,5 +173,7 @@ hyprscope_screenshot(scope: "layout", output: "/tmp/hyprscope-card.png")
 - **它包装的是 checkout，不是发行版。** 工具运行的是这个仓库的 `bin/hyprscope.ts`，依赖它的 `--json` 输出形状。仓库目录不能挪位置，CLI 一改，工具返回的内容也可能跟着变。它也不负责编译 C helper：需要注入的计划仍然需要 `bin/wl-inject`，能力基线探针仍然需要 `bin/wl-scratch`，截取单个窗口还需要 `pnpm run build:capture` 生成的 `bin/wl-capture`（前两个见 [README.zh.md](/README.zh.md) 的快速开始）。
 - **图片要模型路由支持。** 只有会话挂载了附件存储、并且被路由到的模型声明接受图片输入时，截图工具才会把 PNG 挂到结果上。没有存储、纯文本路由、路由无法解析或保存失败时，结果仍然带着路径、大小和哈希，并附一条 `imageError` 说明；截图本身照常成功。
 - **不含 CUA provider。** 这个组合包给模型的是工具；把同样的操作接进 DSH 的 CUA provider 属于以后的工作，不在这个插件里。
+- **桌面消息桥不增加控制路径。** 它只启动 `hyprscope message ...` 和只读的 `screenshot`，从不调用 `hyprscope control`；它通过 Host 的 `sessionController.prompt` 以普通用户消息注入，从不回答卡片，不拿租约，也不改桌面状态。
 - **控制始终需要人。** 没有哪个工具能回答同意卡片或跳过租约。基线缺失或 stale 时，agent 可以运行探针并解释；探针放宽基线时会自己弹出验收确认卡，真正让基线生效的是宿主的那一次点击，任何工具都点不了那张卡。
+- **提示条是尽力而为的。** 它只在 Host 运行、浮层还活着时存在，不会去重启 compositor。目标是最近活跃的根会话，不一定是用户最后看的那一页，需要固定一个会话时设置 `messageSessionId`。浮层写完消息之后 Host 崩溃会丢掉那一条（outbox 在投递前就被消费，所以重试不会重复）；截图超过 8 MiB 或路由声明不支持图片时会跳过。
 - **验证状态。** 这一页写的是组合包的契约，不是验证记录。仓库的[验证记录](/docs/VERIFICATION.zh.md)只覆盖一台测试机上的 CLI，不代表 DSH 工具在你的机器上跑过；组合包自己的测试在 `plugins/dsh-hyprscope/test/`。

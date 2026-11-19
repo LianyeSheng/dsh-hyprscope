@@ -1,11 +1,12 @@
 /** Install the Hyprland failsafe shortcut that revokes a lease. */
 import { execFile } from 'node:child_process'
-import { copyFile, readFile, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { ErrorCode, HyprscopeError } from '../errors.ts'
 import { hyprctlJson } from '../hyprctl.ts'
+import { messageDirectory, messagePaths } from '../message/state.ts'
 import { discoverSession } from '../session.ts'
 import type { Session } from '../types.ts'
 import { hyprscopeBin } from './overlay.ts'
@@ -14,6 +15,9 @@ const run = promisify(execFile)
 
 /** Key combination bound to the failsafe release. */
 export const DEFAULT_PANIC_KEY = 'SUPER + ALT + ESC'
+
+/** Key combination bound to the desktop-message composer. */
+export const DEFAULT_MESSAGE_KEY = 'SUPER + ALT + M'
 const MARKER_BEGIN = '-- >>> hyprscope failsafe >>>'
 const MARKER_END = '-- <<< hyprscope failsafe <<<'
 /** Marker written before the CLI was unified; still removable and replaceable. */
@@ -39,19 +43,27 @@ export interface BindRecord {
 /** Description attached to the failsafe bind so it can be verified later. */
 export const BIND_DESCRIPTION = 'hyprscope failsafe: revoke desktop control'
 
-/** Result of installing the failsafe bind. */
+/** Description attached to the desktop-message bind so it can be verified later. */
+export const MESSAGE_BIND_DESCRIPTION = 'hyprscope message: open the desktop composer'
+
+/** Result of installing the managed binds. */
 export interface BindInstallResult {
   key: string
   command: string
+  messageKey: string
+  messageCommand: string
   luaFile: string
   configFile: string
   backupFile: string | null
   verified: boolean
+  messageVerified: boolean
+  shortcutFile: string
 }
 
 /** Options for {@link installBind}. */
 export interface BindOptions {
   key?: string
+  messageKey?: string
   env?: NodeJS.ProcessEnv
   session?: Session
   now?: Date
@@ -77,16 +89,34 @@ export function panicCommand(env: NodeJS.ProcessEnv = process.env): string {
 }
 
 /**
- * Build the Lua file that registers the failsafe bind.
- * @param key Key combination.
- * @param command Command run on the shortcut.
+ * Build the command the desktop-message shortcut runs.
+ * @param env Environment that selects the Node binary and entry point.
+ * @returns Shell command string for `hl.dsp.exec_cmd`.
+ */
+export function messageCommand(env: NodeJS.ProcessEnv = process.env): string {
+  return [env.HYPRSCOPE_NODE ?? process.execPath, hyprscopeBin(), 'message', 'open']
+    .map(quoteShell).join(' ')
+}
+
+/**
+ * Build the Lua file that registers the managed binds.
+ * @param key Failsafe key combination.
+ * @param command Command run on the failsafe shortcut.
+ * @param messageKey Desktop-message key combination.
+ * @param messageCommandValue Command run on the message shortcut.
  * @returns Lua source.
  */
-export function luaSource(key: string, command: string): string {
+export function luaSource(
+  key: string,
+  command: string,
+  messageKey: string = DEFAULT_MESSAGE_KEY,
+  messageCommandValue: string = messageCommand(),
+): string {
   return [
     `${MARKER_BEGIN}`,
     '-- Managed by `hyprscope control install-bind`; rerun the command instead of editing this file.',
     `hl.bind("${key}", hl.dsp.exec_cmd(${JSON.stringify(command)}), { description = ${JSON.stringify(BIND_DESCRIPTION)} })`,
+    `hl.bind("${messageKey}", hl.dsp.exec_cmd(${JSON.stringify(messageCommandValue)}), { description = ${JSON.stringify(MESSAGE_BIND_DESCRIPTION)} })`,
     `${MARKER_END}`,
     '',
   ].join('\n')
@@ -106,18 +136,26 @@ export function normalizedKey(key: string): string {
 
 /**
  * Build the block appended to the user's `hyprland.lua`.
- * The bind is inline because a `dofile`/`require` indirection is not executed
+ * The binds are inline because a `dofile`/`require` indirection is not executed
  * reliably by the Lua config provider on reload.
- * @param key Key combination.
- * @param command Command run on the shortcut.
+ * @param key Failsafe key combination.
+ * @param command Command run on the failsafe shortcut.
+ * @param messageKey Desktop-message key combination.
+ * @param messageCommandValue Command run on the message shortcut.
  * @returns Lua source block.
  */
-export function configBlock(key: string, command: string): string {
+export function configBlock(
+  key: string,
+  command: string,
+  messageKey: string = DEFAULT_MESSAGE_KEY,
+  messageCommandValue: string = messageCommand(),
+): string {
   return [
     '',
     `${MARKER_BEGIN}`,
-    '-- Failsafe control release for `hyprscope control` (managed; remove with `hyprscope control uninstall-bind`).',
+    '-- Failsafe control release and desktop-message composer for `hyprscope` (managed; remove with `hyprscope control uninstall-bind`).',
     `hl.bind("${normalizedKey(key)}", hl.dsp.exec_cmd(${JSON.stringify(command)}), { description = ${JSON.stringify(BIND_DESCRIPTION)} })`,
+    `hl.bind("${normalizedKey(messageKey)}", hl.dsp.exec_cmd(${JSON.stringify(messageCommandValue)}), { description = ${JSON.stringify(MESSAGE_BIND_DESCRIPTION)} })`,
     `${MARKER_END}`,
     '',
   ].join('\n')
@@ -206,19 +244,47 @@ function findBlock(text: string, configFile: string): ConfigBlockRange | null {
   return null
 }
 
+/** @param bind One hyprctl bind record. @returns Whether the managed block owns it. */
+function managedBind(bind: BindRecord): boolean {
+  const description = bind.description ?? ''
+  return description.includes(BIND_DESCRIPTION) || description.includes(MESSAGE_BIND_DESCRIPTION)
+}
+
 /**
- * Install the failsafe bind into the user's Hyprland configuration.
- * @param options Key, environment, and an optional discovered session.
- * @returns Install result including whether the bind was observed afterwards.
+ * Record the desktop-message shortcut where the overlay reads it.
+ * @param env Environment that resolves the message directory.
+ * @param key Normalized key combination.
+ * @param messageDir Optional resolved directory (tests).
+ * @returns Absolute shortcut file path.
+ */
+async function recordShortcut(env: NodeJS.ProcessEnv, key: string, messageDir?: string): Promise<string> {
+  const paths = messagePaths(messageDir ?? messageDirectory(env))
+  await mkdir(paths.dir, { recursive: true, mode: 0o700 })
+  await writeFile(paths.shortcutFile, `${key}\n`, { mode: 0o644 })
+  return paths.shortcutFile
+}
+
+/**
+ * Install the managed binds (failsafe release and desktop-message composer)
+ * into the user's Hyprland configuration.
+ * @param options Keys, environment, and an optional discovered session.
+ * @returns Install result including whether both binds were observed afterwards.
  */
 export async function installBind(options: BindOptions = {}): Promise<BindInstallResult> {
   const env = options.env ?? process.env
   const session = options.session ?? discoverSession({ env })
   const key = options.key ?? DEFAULT_PANIC_KEY
+  const messageKey = options.messageKey ?? DEFAULT_MESSAGE_KEY
+  if (normalizedKey(key) === normalizedKey(messageKey)) {
+    throw new HyprscopeError(ErrorCode.BIND_FAILED, 'The failsafe and desktop-message shortcuts must differ', {
+      key, messageKey,
+    })
+  }
   const configDir = hyprConfigDir(env)
   const configFile = join(configDir, 'hyprland.lua')
   const luaFile = join(configDir, 'hyprscope.lua')
   const command = panicCommand(env)
+  const messageCmd = messageCommand(env)
   let configText: string
   try {
     configText = await readFile(configFile, 'utf8')
@@ -226,18 +292,24 @@ export async function installBind(options: BindOptions = {}): Promise<BindInstal
     throw new HyprscopeError(ErrorCode.BIND_FAILED, `No Hyprland Lua config at ${configFile}`, { configFile })
   }
   const binds = (await hyprctlJson<BindRecord[]>(session, 'binds')) ?? []
-  if (keyTaken(binds, key)) {
+  // Reinstalling replaces the managed block, so its own binds are not conflicts.
+  const foreign = binds.filter(bind => !managedBind(bind))
+  if (keyTaken(foreign, key)) {
     throw new HyprscopeError(ErrorCode.BIND_FAILED, `Key ${key} is already bound`, { key })
   }
-  await writeFile(luaFile, luaSource(normalizedKey(key), command), { mode: 0o644 })
+  if (keyTaken(foreign, messageKey)) {
+    throw new HyprscopeError(ErrorCode.BIND_FAILED, `Key ${messageKey} is already bound`, { messageKey })
+  }
+  await writeFile(luaFile, luaSource(normalizedKey(key), command, normalizedKey(messageKey), messageCmd), { mode: 0o644 })
   const stamp = (options.now ?? new Date()).toISOString().replace(/[:.]/g, '-')
   const backupFile = `${configFile}.bak-hyprscope-${stamp}`
   await copyFile(configFile, backupFile)
   const block = findBlock(configText, configFile)
+  const nextBlock = configBlock(key, command, messageKey, messageCmd)
   if (block === null) {
-    await writeFile(configFile, `${configText}${configBlock(key, command)}`)
+    await writeFile(configFile, `${configText}${nextBlock}`)
   } else {
-    await writeFile(configFile, `${configText.slice(0, block.begin)}${configBlock(key, command).trim()}${configText.slice(block.end)}`)
+    await writeFile(configFile, `${configText.slice(0, block.begin)}${nextBlock.trim()}${configText.slice(block.end)}`)
   }
   await reloadConfig(session, env)
   const errors = (await hyprctlJson<string[]>(session, 'configerrors')) ?? []
@@ -245,25 +317,52 @@ export async function installBind(options: BindOptions = {}): Promise<BindInstal
     && (error.includes('hyprscope') || error.includes('hyprlease')))
   if (relevant.length > 0) {
     await writeFile(configFile, configText)
+    await removeLua(luaFile)
     await reloadConfig(session, env)
-    throw new HyprscopeError(ErrorCode.BIND_FAILED, 'The failsafe bind broke the Hyprland configuration; restored the backup', {
+    throw new HyprscopeError(ErrorCode.BIND_FAILED, 'The managed binds broke the Hyprland configuration; restored the backup', {
       errors: relevant,
     })
   }
   const after = (await hyprctlJson<BindRecord[]>(session, 'binds')) ?? []
   const verified = after.some(bind => (bind.description ?? '').includes(BIND_DESCRIPTION))
-  if (!verified) {
+  const messageVerified = after.some(bind => (bind.description ?? '').includes(MESSAGE_BIND_DESCRIPTION))
+  if (!verified || !messageVerified) {
     await writeFile(configFile, configText)
+    await removeLua(luaFile)
     await reloadConfig(session, env)
-    throw new HyprscopeError(ErrorCode.BIND_FAILED, 'The failsafe bind did not appear in hyprctl binds; restored the backup', {
-      key, configFile,
+    throw new HyprscopeError(ErrorCode.BIND_FAILED, 'The managed binds did not all appear in hyprctl binds; restored the backup', {
+      key, messageKey, configFile, verified, messageVerified,
     })
   }
-  return { key: normalizedKey(key), command, luaFile, configFile, backupFile, verified }
+  let shortcutFile: string
+  try {
+    shortcutFile = await recordShortcut(env, normalizedKey(messageKey))
+  } catch (error) {
+    await writeFile(configFile, configText)
+    await removeLua(luaFile)
+    await reloadConfig(session, env)
+    throw new HyprscopeError(ErrorCode.BIND_FAILED, 'The binds were installed but the message shortcut could not be recorded; restored the backup', {
+      configFile,
+      cause: error instanceof Error ? error.message : String(error),
+    })
+  }
+  return {
+    key: normalizedKey(key),
+    command,
+    messageKey: normalizedKey(messageKey),
+    messageCommand: messageCmd,
+    luaFile,
+    configFile,
+    backupFile,
+    verified,
+    messageVerified,
+    shortcutFile,
+  }
 }
 
 /**
- * Remove the failsafe bind and restore the configuration block.
+ * Remove the managed binds, the desktop-message shortcut record and the
+ * generated Lua file.
  * @param options Environment and an optional discovered session.
  * @returns Whether a block was removed.
  */
@@ -286,6 +385,7 @@ export async function uninstallBind(options: {
   await writeFile(configFile, next)
   await removeLua(luaFile)
   await removeLua(join(configDir, 'hyprlease.lua'))
+  await removeLua(messagePaths(messageDirectory(env)).shortcutFile)
   await reloadConfig(session, env)
   return { removed: true, backupFile }
 }

@@ -8,7 +8,7 @@ A CLI tool for Hyprland desktop observation and consent-gated control, plus a na
 
 It starts from a concrete problem: a DSH process is often not inside the graphical session, `WAYLAND_DISPLAY` and `HYPRLAND_INSTANCE_SIGNATURE` are both empty, and it can neither see the desktop nor know which compositor to send a request to. hyprscope finds the session and shapes the state into stable fields, so that DSH's CUA provider can be wired up later.
 
-The project has one entry point: `hyprscope` observes read-only, and `hyprscope control` is the consent-gated control surface. They share session discovery and observation code, but a read-only command never loads the lease, executor or desktop lifecycle paths, and every command that can change the desktop lives under `control`.
+The project has one entry point and three command groups: `hyprscope` observes read-only, `hyprscope control` is the consent-gated control surface, and `hyprscope message` drives the desktop hint/composer that feeds a running DSH Host. They share session discovery, but a read-only command never loads the lease, executor or desktop lifecycle paths, the message surface loads none of them either, and every command that can change the desktop lives under `control`.
 
 ## Quick start
 
@@ -92,6 +92,22 @@ node bin/hyprscope.ts control desktop status
 node bin/hyprscope.ts control desktop stop
 ```
 
+### Desktop messages
+
+A running DSH Host with this plugin also gets a small hint on the desktop: DSH is running in the background, hyprscope is enabled, and the message shortcut is ready. The hint is a Quickshell pill at the top-right; the Host refreshes its heartbeat every few seconds, so the pill disappears when DSH stops.
+
+Press the shortcut (default `SUPER + ALT + M`) and a small composer appears in the centre. Type, press Enter, and the message lands in the conversation the Host saw most recently — as an ordinary user message, with a screenshot of the desktop at that moment attached when the route accepts images. The agent therefore sees the screen without a browser page in front; if the image is skipped it can still call `hyprscope_screenshot` or `hyprscope_observe`. Esc cancels; the composer only steals the keyboard while it is visible.
+
+Install the shortcut once, together with the failsafe, and restart DSH so the plugin loads the bridge:
+
+```sh
+node bin/hyprscope.ts control install-bind          # SUPER + ALT + ESC revokes control; SUPER + ALT + M opens the composer
+node bin/hyprscope.ts control install-bind --message-key "SUPER + ALT + D"
+node bin/hyprscope.ts message open                  # what the shortcut runs; also works from a terminal
+```
+
+The message surface needs Quickshell, a reachable Hyprland session, and a DSH profile that exposes `sessionController` (the Web and Desktop bundles do). It takes no lease and changes no desktop state: it paints an overlay, writes message files, and types through the Host's own prompt admission. Installing the shortcuts changes the bind count, so an accepted capability baseline becomes stale; re-probe and let the host accept the new count before control runs. The plugin-side behavior, target selection and state files are in [docs/DSH-PLUGIN.md](/docs/DSH-PLUGIN.md).
+
 ### Batch execution
 
 Whenever an action takes more than a step or two, you should write a plan and let the program execute it:
@@ -123,7 +139,8 @@ What a plan can do is kept very narrow: no `exec`, no arbitrary dispatcher, no c
 | `hyprscope control baseline --probe / --show` | Measure this machine and, when the result widens the accepted baseline, ask the host on a confirmation card and write the new baseline on Allow; `--show` reviews the evidence and the accepted baseline |
 | `hyprscope control status / panic` | Inspect the control lease; `panic` is the emergency revoke used by the failsafe shortcut (never an agent workflow step) |
 | `hyprscope control desktop start / attach / status / stop` | Start a nested agent desktop, attach an existing instance, inspect either, or stop it |
-| `hyprscope control install-bind / uninstall-bind` | Install or remove the `SUPER + ALT + ESC` fallback |
+| `hyprscope control install-bind / uninstall-bind` | Install or remove the managed shortcuts: `SUPER + ALT + ESC` failsafe and `SUPER + ALT + M` desktop message (`--key`, `--message-key`) |
+| `hyprscope message open / overlay / stop` | Open the desktop composer (the shortcut runs this), start its hint overlay, or ask it to exit; `--lang zh\|en`, `--json` |
 
 Common options: `--json`, `--desktop <user|agent|external>`, `--signature <sig>`, `--runtime-dir <dir>`, `-h`, `-v`; `hyprscope` also accepts `--timeout <ms>`. `--desktop` selects the instance a command addresses; the observation commands and `hyprscope control run`, `status`, `panic`, `ops` and `baseline` accept it, and omitting it means the user's desktop. `hyprscope control` also accepts `--lang <zh|en>` on every control command: it selects the language of the consent or confirmation card and of the overlay it spawns (default `zh`, or the `HYPRSCOPE_LANG` environment value; an unknown value is a usage error), while CLI stdout stays English. Use `--json` in scripts; the human-readable output only aims to look decent, and column alignment and wording are not guaranteed stable; a bad argument exits with code 2, any other failure with code 1.
 
@@ -133,7 +150,7 @@ A screenshot can be taken in four ways: by default it captures the whole layout,
 
 `plugins/dsh-hyprscope/` is the project's native, plug-and-play DSH Host bundle; it turns these commands into six tools for the model, so a session calls tools instead of composing `node bin/hyprscope.ts ... --json` commands. `hyprscope_observe`, `hyprscope_screenshot` and `hyprscope_events` read the desktop; `hyprscope_plan`, `hyprscope_baseline` and `hyprscope_desktop` go through `hyprscope control`; a plan run is the consent step and also covers what used to be a single-step action. Observation needs no consent; a desktop change still needs the host's consent in the control lease and an accepted capability baseline, and the plugin adds no bypass. The tools that can show a consent card also take an optional `language` (`zh` or `en`; omitted keeps the Chinese default): `hyprscope_plan` `run` and `hyprscope_baseline` `probe`.
 
-Open **Plugins**, choose **Add plugin**, and enter the absolute directory `/home/jw/workspace/dsh-hyprscope/plugins/dsh-hyprscope`; or ask the DSH agent to call `plugin_manager` `install_bundle` with that directory. The bundle only loads on Linux and needs the checkout and Node 22 on the same machine as DSH. The tool surface, configuration keys and limitations are in [docs/DSH-PLUGIN.md](/docs/DSH-PLUGIN.md).
+Open **Plugins**, choose **Add plugin**, and enter the absolute directory `/home/jw/workspace/dsh-hyprscope/plugins/dsh-hyprscope`; or ask the DSH agent to call `plugin_manager` `install_bundle` with that directory. The bundle only loads on Linux and needs the checkout and Node 22 on the same machine as DSH. Besides the six tools it starts the desktop-message hint and accepts messages from the shortcut while DSH runs in the background. The tool surface, configuration keys and limitations are in [docs/DSH-PLUGIN.md](/docs/DSH-PLUGIN.md).
 
 ## Why the session has to be found on its own
 

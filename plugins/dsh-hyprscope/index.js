@@ -24,6 +24,7 @@ import { mkdir, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { messageDirectory, startDesktopMessageBridge } from './message.js'
 
 /** Plugin name shown in Cordis diagnostics. */
 export const name = 'dsh-hyprscope'
@@ -97,7 +98,11 @@ const PROMPT_TEXT =
   + 'agent-side done/panic. Every control call requires an accepted capability baseline. If a call fails with '
   + 'CAPABILITY, run hyprscope_baseline action "probe", explain the evidence, and let the host answer the '
   + 'confirmation card the call may show. Never approve a consent card on the host\'s behalf, and never claim the '
-  + 'baseline was accepted.'
+  + 'baseline was accepted. A user may also reach you from the desktop shortcut while the Web UI is '
+  + 'closed or in another workspace: that message arrives as an ordinary user message and may carry a '
+  + 'screenshot of the desktop at that moment. If it has no screenshot and the desktop matters, call '
+  + 'hyprscope_screenshot (layout) or hyprscope_observe before answering; do not assume the user is looking '
+  + 'at the chat page.'
 
 const DEFAULT_TIMEOUT_MS = 30_000
 const DEFAULT_CONTROL_TIMEOUT_MS = 180_000
@@ -105,12 +110,84 @@ const DEFAULT_MAX_OUTPUT_BYTES = 16 * 1024 * 1024
 const DEFAULT_MAX_RENDER_CHARS = 7_000
 const MIN_RENDER_CHARS = 64
 
-/** Register the six hyprscope tools and the optional prompt section. */
+/** Register the six hyprscope tools, the optional prompt section and the desktop-message bridge. */
 export function apply(ctx, config = {}) {
   const settings = resolveSettings(config)
   const runtime = { ctx, settings }
   for (const definition of createTools(runtime)) ctx.tools.register(definition)
   registerPrompt(ctx)
+  startBridge(runtime)
+}
+
+/**
+ * Start the desktop-message bridge: the floating hint and the shortcut that
+ * hands a desktop-composed message to the most recently active Session.
+ *
+ * The bridge is optional capability, never a tool gate: a profile without the
+ * session controller (or a Host that cannot start Quickshell) keeps every tool
+ * working and only loses the hint. Failures are logged and contained.
+ * @param runtime Plugin context and validated settings.
+ */
+function startBridge(runtime) {
+  const { ctx, settings } = runtime
+  if (settings.desktopMessage === false) return
+  let started = false
+  const launch = () => {
+    if (started) return
+    started = true
+    try {
+      const bridge = startDesktopMessageBridge({
+        ctx,
+        settings,
+        runCli: (argv, options) => runCli(runtime, argv, options),
+      })
+      Promise.resolve(bridge.ready).catch(() => {})
+      try {
+        if (typeof ctx.effect === 'function') ctx.effect(() => () => bridge.dispose())
+      } catch {
+        // A test double or an unloading context must not turn cleanup into an error.
+      }
+    } catch (error) {
+      try {
+        if (ctx.logger !== undefined && typeof ctx.logger.warn === 'function') {
+          ctx.logger.warn('hyprscope message bridge failed to start: '
+            + (error instanceof Error ? error.message : String(error)))
+        }
+      } catch {
+        // Logging is best-effort.
+      }
+    }
+  }
+  let available = false
+  try {
+    const controller = ctx.get('sessionController')
+    available = controller !== undefined && controller !== null
+  } catch {
+    available = false
+  }
+  if (available) {
+    launch()
+    return
+  }
+  // Loader order is not a promise: the session controller can appear after this
+  // bundle initializes. Waiting on the service keeps the bridge from silently
+  // disappearing until the next DSH restart.
+  try {
+    if (typeof ctx.inject === 'function') {
+      const fiber = ctx.inject(['sessionController'], (serviceCtx) => {
+        let present = false
+        try {
+          present = serviceCtx.get('sessionController') !== undefined && serviceCtx.get('sessionController') !== null
+        } catch {
+          present = false
+        }
+        if (present) launch()
+      })
+      Promise.resolve(fiber).catch(() => {})
+    }
+  } catch {
+    // A test double without inject simply keeps the bridge off.
+  }
 }
 
 /**
@@ -178,6 +255,21 @@ function resolveSettings(config) {
       : readConfigBoolean(raw.attachScreenshotImage, 'config.attachScreenshotImage'),
     maxRenderChars: readConfigInteger(raw.maxRenderChars, 'config.maxRenderChars', MIN_RENDER_CHARS, 1_000_000,
       DEFAULT_MAX_RENDER_CHARS),
+    desktopMessage: raw.desktopMessage === undefined
+      ? true
+      : readConfigBoolean(raw.desktopMessage, 'config.desktopMessage'),
+    messageLanguage: raw.messageLanguage === undefined
+      ? 'zh'
+      : readConfigLanguage(raw.messageLanguage, 'config.messageLanguage'),
+    messageAttachScreenshot: raw.messageAttachScreenshot === undefined
+      ? true
+      : readConfigBoolean(raw.messageAttachScreenshot, 'config.messageAttachScreenshot'),
+    messageSessionId: raw.messageSessionId === undefined
+      ? undefined
+      : readNonEmptyString(raw.messageSessionId, 'config.messageSessionId', 'hyprscope tools'),
+    messageDir: raw.messageDir === undefined
+      ? messageDirectory({})
+      : resolve(readNonEmptyString(raw.messageDir, 'config.messageDir', 'hyprscope tools')),
   }
   // Recorded for the activation-time diagnosis; every call re-checks so a
   // projectDir fixed after activation starts working without a reload.
@@ -197,6 +289,12 @@ function readConfigInteger(value, label, minimum, maximum, fallback) {
 /** @param value Candidate config value. @param label Config key used in the error. @returns Boolean. */
 function readConfigBoolean(value, label) {
   if (typeof value !== 'boolean') throw new Error(`hyprscope tools: ${label} must be a boolean`)
+  return value
+}
+
+/** @param value Candidate config value. @param label Config key used in the error. @returns "zh" or "en". */
+function readConfigLanguage(value, label) {
+  if (value !== 'zh' && value !== 'en') throw new Error(`hyprscope tools: ${label} must be "zh" or "en"`)
   return value
 }
 
@@ -914,7 +1012,7 @@ function appendInstanceFlags(argv, input, tool) {
  * to the child's stdin and the pipe is ended so the CLI reads it up to EOF.
  * @param runtime Plugin context and settings.
  * @param argv CLI arguments without the final `--json`.
- * @param options Effective spawn timeout, the caller's abort signal and an optional stdin document.
+ * @param options Effective spawn timeout, the caller's abort signal, an optional environment and an optional stdin document.
  * @returns Exit code and captured stdout/stderr.
  */
 function runCli(runtime, argv, options) {
@@ -931,7 +1029,7 @@ function runCli(runtime, argv, options) {
     try {
       const child = execFile(settings.nodeExecutable, command, {
         cwd: settings.projectDir,
-        env: process.env,
+        env: options.env ?? process.env,
         timeout: options.timeoutMs,
         maxBuffer: settings.maxOutputBytes,
         signal: options.signal,

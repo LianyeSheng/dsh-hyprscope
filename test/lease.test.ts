@@ -1,10 +1,13 @@
 /** Lease state machine, consent flow, holder release, and failsafe helpers. */
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { parseKey, keyTaken, luaSource, configBlock, quoteShell, normalizedKey, panicCommand, uninstallBind } from '../src/lease/bind.ts'
+import {
+  parseKey, keyTaken, luaSource, configBlock, quoteShell, normalizedKey, panicCommand, messageCommand, installBind,
+  uninstallBind,
+} from '../src/lease/bind.ts'
 import { main, parseLeaseArgs } from '../src/lease/cli.ts'
 import {
   cleanupStaleLease, holderEntry, holdLease, leaseStatus, releaseLease, renewLease, requestLease,
@@ -698,9 +701,17 @@ test('uninstallBind removes a legacy hyprlease block', async (t) => {
     '',
   ].join('\n'))
   writeFileSync(join(configDir, 'hyprlease.lua'), 'old = true\n')
+  const stateDir = tempDir('hyprscope-bind-state-')
+  t.after(() => removeDir(stateDir))
+  const messageDir = join(stateDir, 'hyprscope', 'message')
+  mkdirSync(messageDir, { recursive: true })
+  writeFileSync(join(messageDir, 'shortcut.txt'), 'SUPER + ALT + M' + String.fromCharCode(10))
   writeScript(binDir, 'hyprctl', '#!/bin/sh\nexit 0\n')
   const result = await uninstallBind({
-    env: { ...process.env, HYPR_CONFIG_DIR: configDir, PATH: `${binDir}:${process.env.PATH ?? ''}` },
+    env: {
+      ...process.env, HYPR_CONFIG_DIR: configDir, XDG_STATE_HOME: stateDir,
+      PATH: `${binDir}:${process.env.PATH ?? ''}`,
+    },
     session: { runtimeDir: '/tmp', signature: 'sig' } as never,
   })
   assert.equal(result.removed, true)
@@ -709,5 +720,194 @@ test('uninstallBind removes a legacy hyprlease block', async (t) => {
   assert.match(text, /before = true/)
   assert.match(text, /after = true/)
   assert.equal(existsSync(join(configDir, 'hyprlease.lua')), false)
+  assert.equal(existsSync(join(messageDir, 'shortcut.txt')), false)
   assert.ok(result.backupFile !== null && existsSync(result.backupFile))
+})
+test('messageCommand runs the desktop-message surface', () => {
+  const command = messageCommand({ HYPRSCOPE_NODE: '/usr/bin/node' })
+  assert.match(command, /bin\/hyprscope\.ts' 'message' 'open'/)
+  assert.doesNotMatch(command, /'control'/)
+})
+
+test('luaSource and configBlock register both managed binds', () => {
+  const lua = luaSource('SUPER + ALT + ESC', 'node panic', 'SUPER + ALT + M', 'node message')
+  assert.match(lua, /hl\.bind\("SUPER \+ ALT \+ ESC"/)
+  assert.match(lua, /hl\.bind\("SUPER \+ ALT \+ M"/)
+  assert.match(lua, /hyprscope message: open the desktop composer/)
+  const block = configBlock('SUPER + ALT + ESC', 'node panic', 'SUPER + ALT + M', 'node message')
+  assert.match(block, /hl\.bind\("SUPER \+ ALT \+ M"/)
+  assert.match(block, /hyprscope message: open the desktop composer/)
+})
+
+/** A fake hyprctl whose second binds query reports the managed binds. */
+function managedBindScript(): string {
+  return [
+    '#!/bin/sh',
+    'count_file="$(dirname "$0")/binds-count"',
+    'cmd="$2"',
+    'if [ "$cmd" = "binds" ]; then',
+    '  count=0',
+    '  [ -f "$count_file" ] && count=$(cat "$count_file")',
+    '  count=$((count + 1))',
+    '  printf "%s" "$count" > "$count_file"',
+    '  if [ "$count" -ge 2 ]; then',
+    '    printf "%s" "[{\\"description\\":\\"hyprscope failsafe: revoke desktop control\\"},{\\"description\\":\\"hyprscope message: open the desktop composer\\"}]"',
+    '  else',
+    '    printf "%s" "[]"',
+    '  fi',
+    '  exit 0',
+    'fi',
+    'if [ "$cmd" = "configerrors" ]; then printf "%s" "[]"; exit 0; fi',
+    'exit 0',
+    '',
+  ].join(String.fromCharCode(10))
+}
+
+test('installBind writes both binds, verifies them and records the shortcut', async (t) => {
+  const configDir = tempDir('hyprscope-bind-install-config-')
+  const binDir = tempDir('hyprscope-bind-install-bin-')
+  const stateDir = tempDir('hyprscope-bind-install-state-')
+  t.after(() => { removeDir(configDir); removeDir(binDir); removeDir(stateDir) })
+  writeFileSync(join(configDir, 'hyprland.lua'), 'existing = true' + String.fromCharCode(10))
+  writeScript(binDir, 'hyprctl', managedBindScript())
+  const oldPath = process.env.PATH
+  process.env.PATH = binDir + ':' + (oldPath ?? '')
+  t.after(() => { process.env.PATH = oldPath })
+  const result = await installBind({
+    env: {
+      ...process.env, HYPR_CONFIG_DIR: configDir, XDG_STATE_HOME: stateDir,
+      PATH: binDir + ':' + (oldPath ?? ''),
+    },
+    session: { runtimeDir: '/tmp', signature: 'sig' } as never,
+    now: new Date('2026-01-01T00:00:00.000Z'),
+  })
+  assert.equal(result.key, 'SUPER + ALT + Escape')
+  assert.equal(result.messageKey, 'SUPER + ALT + M')
+  assert.match(result.messageCommand, /'message' 'open'/)
+  assert.equal(result.verified, true)
+  assert.equal(result.messageVerified, true)
+  const config = readFileSync(join(configDir, 'hyprland.lua'), 'utf8')
+  assert.match(config, /existing = true/)
+  assert.match(config, /hl\.bind\("SUPER \+ ALT \+ Escape"/)
+  assert.match(config, /hl\.bind\("SUPER \+ ALT \+ M"/)
+  assert.equal((config.match(/>>> hyprscope failsafe >>>/g) ?? []).length, 1)
+  assert.equal(readFileSync(result.shortcutFile, 'utf8').trim(), 'SUPER + ALT + M')
+  assert.ok(result.backupFile !== null && existsSync(result.backupFile))
+})
+
+test('installBind refuses a message key that is already bound', async (t) => {
+  const configDir = tempDir('hyprscope-bind-conflict-config-')
+  const binDir = tempDir('hyprscope-bind-conflict-bin-')
+  const stateDir = tempDir('hyprscope-bind-conflict-state-')
+  t.after(() => { removeDir(configDir); removeDir(binDir); removeDir(stateDir) })
+  writeFileSync(join(configDir, 'hyprland.lua'), 'existing = true' + String.fromCharCode(10))
+  writeScript(binDir, 'hyprctl',
+    '#!/bin/sh' + String.fromCharCode(10) + 'printf "%s" "[{\\"modmask\\":72,\\"key\\":\\"M\\"}]"' + String.fromCharCode(10))
+  const oldPath = process.env.PATH
+  process.env.PATH = binDir + ':' + (oldPath ?? '')
+  t.after(() => { process.env.PATH = oldPath })
+  await assert.rejects(
+    installBind({
+      env: { ...process.env, HYPR_CONFIG_DIR: configDir, XDG_STATE_HOME: stateDir },
+      session: { runtimeDir: '/tmp', signature: 'sig' } as never,
+    }),
+    (error: Error & { code?: string }) => error.code === 'BIND_FAILED' && /SUPER \+ ALT \+ M/.test(error.message),
+  )
+})
+
+test('installBind refuses to bind the same key twice', async (t) => {
+  const configDir = tempDir('hyprscope-bind-same-config-')
+  const stateDir = tempDir('hyprscope-bind-same-state-')
+  t.after(() => { removeDir(configDir); removeDir(stateDir) })
+  writeFileSync(join(configDir, 'hyprland.lua'), 'existing = true' + String.fromCharCode(10))
+  await assert.rejects(
+    installBind({
+      key: 'SUPER + ALT + M',
+      messageKey: 'SUPER + ALT + M',
+      env: { ...process.env, HYPR_CONFIG_DIR: configDir, XDG_STATE_HOME: stateDir },
+      session: { runtimeDir: '/tmp', signature: 'sig' } as never,
+    }),
+    (error: Error & { code?: string }) => error.code === 'BIND_FAILED' && /must differ/.test(error.message),
+  )
+})
+test('a reinstall replaces the managed binds instead of treating them as conflicts', async (t) => {
+  const configDir = tempDir('hyprscope-bind-reinstall-config-')
+  const binDir = tempDir('hyprscope-bind-reinstall-bin-')
+  const stateDir = tempDir('hyprscope-bind-reinstall-state-')
+  t.after(() => { removeDir(configDir); removeDir(binDir); removeDir(stateDir) })
+  writeFileSync(join(configDir, 'hyprland.lua'), 'existing = true' + String.fromCharCode(10))
+  const script = [
+    '#!/bin/sh',
+    'count_file="$(dirname "$0")/binds-count"',
+    'cmd="$2"',
+    'if [ "$cmd" = "binds" ]; then',
+    '  count=0',
+    '  [ -f "$count_file" ] && count=$(cat "$count_file")',
+    '  count=$((count + 1))',
+    '  printf "%s" "$count" > "$count_file"',
+    '  if [ "$count" -ge 2 ]; then',
+    '    printf "%s" "[{\\\"description\\\":\\\"hyprscope failsafe: revoke desktop control\\\"},{\\\"description\\\":\\\"hyprscope message: open the desktop composer\\\"}]"',
+    '  else',
+    '    printf "%s" "[{\\\"modmask\\\":72,\\\"key\\\":\\\"Escape\\\",\\\"description\\\":\\\"hyprscope failsafe: revoke desktop control\\\"},{\\\"modmask\\\":72,\\\"key\\\":\\\"M\\\",\\\"description\\\":\\\"hyprscope message: open the desktop composer\\\"}]"',
+    '  fi',
+    '  exit 0',
+    'fi',
+    'if [ "$cmd" = "configerrors" ]; then printf "%s" "[]"; exit 0; fi',
+    'exit 0',
+    '',
+  ].join(String.fromCharCode(10))
+  writeScript(binDir, 'hyprctl', script)
+  const oldPath = process.env.PATH
+  process.env.PATH = binDir + ':' + (oldPath ?? '')
+  t.after(() => { process.env.PATH = oldPath })
+  const result = await installBind({
+    env: { ...process.env, HYPR_CONFIG_DIR: configDir, XDG_STATE_HOME: stateDir },
+    session: { runtimeDir: '/tmp', signature: 'sig' } as never,
+  })
+  assert.equal(result.verified, true)
+  assert.equal(result.messageVerified, true)
+  const config = readFileSync(join(configDir, 'hyprland.lua'), 'utf8')
+  assert.equal((config.match(/>>> hyprscope failsafe >>>/g) ?? []).length, 1)
+  assert.equal((config.match(/hl\.bind\(/g) ?? []).length, 2)
+})
+test('a partial verification restores the configuration and removes the generated Lua', async (t) => {
+  const configDir = tempDir('hyprscope-bind-partial-config-')
+  const binDir = tempDir('hyprscope-bind-partial-bin-')
+  const stateDir = tempDir('hyprscope-bind-partial-state-')
+  t.after(() => { removeDir(configDir); removeDir(binDir); removeDir(stateDir) })
+  const original = 'existing = true' + String.fromCharCode(10)
+  writeFileSync(join(configDir, 'hyprland.lua'), original)
+  const script = [
+    '#!/bin/sh',
+    'count_file="$(dirname "$0")/binds-count"',
+    'cmd="$2"',
+    'if [ "$cmd" = "binds" ]; then',
+    '  count=0',
+    '  [ -f "$count_file" ] && count=$(cat "$count_file")',
+    '  count=$((count + 1))',
+    '  printf "%s" "$count" > "$count_file"',
+    '  if [ "$count" -ge 2 ]; then',
+    '    printf "%s" "[{\\\"description\\\":\\\"hyprscope failsafe: revoke desktop control\\\"}]"',
+    '  else',
+    '    printf "%s" "[]"',
+    '  fi',
+    '  exit 0',
+    'fi',
+    'if [ "$cmd" = "configerrors" ]; then printf "%s" "[]"; exit 0; fi',
+    'exit 0',
+    '',
+  ].join(String.fromCharCode(10))
+  writeScript(binDir, 'hyprctl', script)
+  const oldPath = process.env.PATH
+  process.env.PATH = binDir + ':' + (oldPath ?? '')
+  t.after(() => { process.env.PATH = oldPath })
+  await assert.rejects(
+    installBind({
+      env: { ...process.env, HYPR_CONFIG_DIR: configDir, XDG_STATE_HOME: stateDir },
+      session: { runtimeDir: '/tmp', signature: 'sig' } as never,
+    }),
+    (error: Error & { code?: string }) => error.code === 'BIND_FAILED',
+  )
+  assert.equal(readFileSync(join(configDir, 'hyprland.lua'), 'utf8'), original)
+  assert.equal(existsSync(join(configDir, 'hyprscope.lua')), false)
 })

@@ -33,6 +33,7 @@ const USAGE = `hyprscope — Hyprland desktop observation and consent-gated cont
 
 Usage: hyprscope <command> [options]
        hyprscope control <command> [options]
+       hyprscope message <command> [options]
 
 Commands:
   doctor        Probe discovery, compositor, and observation capabilities
@@ -46,6 +47,7 @@ Commands:
   screenshot    Capture a PNG of the layout, one monitor, a region, or one window
   events        Stream compositor events
   control       Lease-gated control surface (run "hyprscope control --help")
+  message       Desktop message composer for a running DSH Host (run "hyprscope message --help")
 
 Options:
   --json                 Machine-readable output
@@ -69,6 +71,9 @@ Event options:
   --match <regex>        Only report events whose "name:data" matches
   --once                 Exit after the first match (exit 1 when the timeout expires first)
   --count <n>            Exit after n matching events
+
+Run "hyprscope message --help" for the desktop-message commands. They write a
+message and start a Quickshell overlay, but they never change the desktop.
 `
 
 /** Parsed command line. */
