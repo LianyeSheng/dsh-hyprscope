@@ -19,7 +19,9 @@ export function tempDir(prefix = 'hyprscope-'): string {
  * @param path Directory to delete.
  */
 export function removeDir(path: string): void {
-  rmSync(path, { recursive: true, force: true })
+  // The overlay a test spawns can still be flushing a file when the test tears
+  // the directory down; retrying ENOTEMPTY keeps that race out of the suite.
+  rmSync(path, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
 }
 
 /**
