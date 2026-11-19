@@ -1,8 +1,8 @@
 # The capability baseline file `baseline.json`
 
-English | [中文](/docs/BASELINE.zh.md)
+English | [中文](/docs/cli/BASELINE.zh.md)
 
-> Status: **implemented**. `src/compat/baseline.ts` reads, validates and computes this file, `src/compat/probe.ts` measures and writes drafts, and `hyprscope control baseline --probe` is the only path that records a human approval — when its measurement widens the accepted baseline, the same command asks the overlay for a confirmation card and writes the accepted file only after the host allows it. For the design background and the probe flow, see [COMPATIBILITY.md](/docs/COMPATIBILITY.md).
+> Status: **implemented**. `src/compat/baseline.ts` reads, validates and computes this file, `src/compat/probe.ts` measures and writes drafts, and `hyprscope control baseline --probe` is the only path that records a human approval — when its measurement widens the accepted baseline, the same command asks the overlay for a confirmation card and writes the accepted file only after the host allows it. For the design background and the probe flow, see [COMPATIBILITY.md](/docs/cli/COMPATIBILITY.md).
 
 `baseline.json` is **the capability verdict for one desktop**: the user's own machine, or one managed instance. It records what the probe measured, where the evidence is, and who approved it and when. It records only the first layer (machine capability); it records neither runtime state nor application behavior.
 
@@ -39,7 +39,7 @@ A file whose `approval` is `null` is only a draft: the engine must treat it as "
 
 ## 3. Environment fingerprint
 
-The fingerprint describes "which environment was measured". The `effective` block and `configHash` are the values the drift check compares; the other fields are descriptive. The comparison rules are in [COMPATIBILITY.md](/docs/COMPATIBILITY.md) §5.1.
+The fingerprint describes "which environment was measured". The `effective` block and `configHash` are the values the drift check compares; the other fields are descriptive. The comparison rules are in [COMPATIBILITY.md](/docs/cli/COMPATIBILITY.md) §5.1.
 
 ```json
 {
@@ -75,7 +75,7 @@ The fingerprint describes "which environment was measured". The `effective` bloc
 `effective` and `configHash` are written by the probe and read by the staleness comparison. A baseline written by an older version has no `effective` block and is `unverified` until it is re-probed.
 
 - `monitors` is sorted by `name`, and `waylandGlobals` by `interface`, for easy comparison;
-- Field names follow the raw `hyprctl -j` output (`at`, `size`, `dpmsStatus`), not the normalized contract names of `docs/PROTOCOL.md` (`position`, `size`, `dpmsOn`). The fingerprint describes the environment, not the observation contract for callers;
+- Field names follow the raw `hyprctl -j` output (`at`, `size`, `dpmsStatus`), not the normalized contract names of `docs/cli/PROTOCOL.md` (`position`, `size`, `dpmsOn`). The fingerprint describes the environment, not the observation contract for callers;
 - `waylandGlobals` stores the full list (not just the few we care about), so a difference is obvious at a glance when changing compositor or adding plugins;
 - `helpers` records whether the two C programs are available this time: `inject` (`bin/wl-inject`) and `scratch` (`bin/wl-scratch`, built by `pnpm run build:scratch`).
 - `effective` is the runtime state that can change without a version change: the config provider, `input:follow_mouse`, a bind summary, and `hyprctl configerrors`. The probe reads it with `hyprctl status`, `getoption`, `binds` and `configerrors`, never by parsing the configuration file; the compositor's `[""]` "no errors" shape is normalized to `[]`.

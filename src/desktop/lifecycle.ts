@@ -3,7 +3,7 @@
  *
  * `desktop.json` is a cache of what the tool started, never an authority: every
  * status read re-checks the pid and both sockets, and `stop` kills only a
- * desktop the tool started. The design contract is `docs/DESKTOP.md`.
+ * desktop the tool started. The design contract is `docs/cli/DESKTOP.md`.
  */
 import { spawn, type ChildProcess } from 'node:child_process'
 import { closeSync, existsSync, openSync, readFileSync, statSync } from 'node:fs'

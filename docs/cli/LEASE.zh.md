@@ -1,6 +1,6 @@
 # 控制租约（`hyprscope control`）
 
-[English](/docs/LEASE.md) | 中文
+[English](/docs/cli/LEASE.md) | 中文
 
 `hyprscope control` 让 agent 在**宿主同意之后**短暂接管桌面控制，并在结束、超时或宿主按下快捷键时把控制交还。它管的是"谁在控制"这件事，不是输入拦截：这一点在下面的[边界](#边界为什么不做输入拦截)里说清楚。
 
@@ -120,7 +120,7 @@ hyprscope control desktop stop [--json]
 
 `--desktop user|agent|external` 选择 `run`、`ops`、`status`、`panic`、`baseline` 和 `desktop` 作用的桌面；省略即 `user`。`status` 和 `panic` 操作的是该桌面按签名区分的租约，所以 `panic` 必须指向持有租约的那个桌面。
 
-`run` 先读它所针对桌面的已验收能力基线（capability baseline）：`user` 用按机器的 `$XDG_STATE_HOME/hyprscope/baseline.json`，`agent`/`external` 用 `$XDG_STATE_HOME/hyprscope/desktop/baseline/<signature>.json`（见 [BASELINE.md](/docs/BASELINE.zh.md)）：文件缺失、仍是草稿、`incomplete`，或者 staleness 判定不是 `fresh` 时，它们会在任何同意卡片出现之前以 `CAPABILITY` 失败，宿主因此不会被要求批准这台机器跑不了的事。`baseline --probe` 是唯一不需要基线也能走的控制路径，因为基线正是它创建的；它仍然要申请自己的短租约。
+`run` 先读它所针对桌面的已验收能力基线（capability baseline）：`user` 用按机器的 `$XDG_STATE_HOME/hyprscope/baseline.json`，`agent`/`external` 用 `$XDG_STATE_HOME/hyprscope/desktop/baseline/<signature>.json`（见 [BASELINE.md](/docs/cli/BASELINE.zh.md)）：文件缺失、仍是草稿、`incomplete`，或者 staleness 判定不是 `fresh` 时，它们会在任何同意卡片出现之前以 `CAPABILITY` 失败，宿主因此不会被要求批准这台机器跑不了的事。`baseline --probe` 是唯一不需要基线也能走的控制路径，因为基线正是它创建的；它仍然要申请自己的短租约。
 
 `--max-resumes` 取 `0..3`（默认 `1`），是同意卡覆盖的恢复次数：`0` 表示第一次遇到可恢复干扰就直接 fault，不再弹询问卡。`--dry-run` 会顺带打印这项额度。`--consent` 对 `run` 与 `baseline --probe` 有效；`run` 每次尝试的 TTL 由计划 `budgetMs` 加 20000ms 余量决定。
 
@@ -171,7 +171,7 @@ hyprscope control desktop stop [--json]
 
 这也意味着宿主在计划执行中途碰桌面时，会先被问一次，而不是被默默"纠正"。这里是协作语义，不是强制冻结，理由见上一节。
 
-计划格式、谓词表、恢复模型和 fault 记录见 `docs/PLAN.md`。
+计划格式、谓词表、恢复模型和 fault 记录见 `docs/cli/PLAN.md`。
 
 ## 当前限制
 

@@ -1,8 +1,8 @@
 # 能力基线文件 `baseline.json`
 
-[English](/docs/BASELINE.md) | 中文
+[English](/docs/cli/BASELINE.md) | 中文
 
-> 状态：**已实现**。`src/compat/baseline.ts` 读取、校验并计算这个文件，`src/compat/probe.ts` 测量并写草稿，`hyprscope control baseline --probe` 是唯一记录人工批准的路径：测量结果比已验收基线更宽时，同一条命令向浮层要一张确认卡，宿主点击允许之后才写已验收的文件。设计背景和探针流程见 [COMPATIBILITY.md](/docs/COMPATIBILITY.zh.md)。
+> 状态：**已实现**。`src/compat/baseline.ts` 读取、校验并计算这个文件，`src/compat/probe.ts` 测量并写草稿，`hyprscope control baseline --probe` 是唯一记录人工批准的路径：测量结果比已验收基线更宽时，同一条命令向浮层要一张确认卡，宿主点击允许之后才写已验收的文件。设计背景和探针流程见 [COMPATIBILITY.md](/docs/cli/COMPATIBILITY.zh.md)。
 
 `baseline.json` 是**一个桌面的能力结论**：用户自己的机器，或者一个受管实例。它记录探针测到了什么、证据在哪、谁在什么时候批准的。它只记录第一层（机器能力），不记录运行时状态，也不记录应用行为。
 
@@ -39,7 +39,7 @@
 
 ## 3. 环境指纹
 
-指纹描述"测的是哪套环境"。`effective` 块和 `configHash` 是漂移检查要比对的值；其余字段只作描述。比对规则见 [COMPATIBILITY.md](/docs/COMPATIBILITY.zh.md) §5.1。
+指纹描述"测的是哪套环境"。`effective` 块和 `configHash` 是漂移检查要比对的值；其余字段只作描述。比对规则见 [COMPATIBILITY.md](/docs/cli/COMPATIBILITY.zh.md) §5.1。
 
 ```json
 {
@@ -75,7 +75,7 @@
 `effective` 和 `configHash` 由探针写入、由陈旧比对读取。更早版本写下的基线没有 `effective` 块，在重测之前一直是 `unverified`。
 
 - `monitors` 按 `name` 排序，`waylandGlobals` 按 `interface` 排序，方便比较；
-- 字段名沿用原始 `hyprctl -j` 输出（`at`、`size`、`dpmsStatus`），不是 `docs/PROTOCOL.md` 的归一化契约名（`position`、`size`、`dpmsOn`）。指纹描述的是环境，不是对调用方的观察契约；
+- 字段名沿用原始 `hyprctl -j` 输出（`at`、`size`、`dpmsStatus`），不是 `docs/cli/PROTOCOL.md` 的归一化契约名（`position`、`size`、`dpmsOn`）。指纹描述的是环境，不是对调用方的观察契约；
 - `waylandGlobals` 存全量列表（不只关心的几个），换 compositor 或加插件时差异一眼能看出来；
 - `helpers` 记录两个 C 程序这次是否可用：`inject`（`bin/wl-inject`）和 `scratch`（`bin/wl-scratch`，用 `pnpm run build:scratch` 编译）。
 - `effective` 是版本不变也可能变的那层运行时状态：config provider、`input:follow_mouse`、绑定摘要和 `hyprctl configerrors`。探针用 `hyprctl status`、`getoption`、`binds` 和 `configerrors` 读它，不解析配置文件；compositor 报的 `[""]`（"没有错误"）会归一化成 `[]`。

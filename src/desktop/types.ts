@@ -4,7 +4,7 @@
  * A desktop is one nested Hyprland instance the tool started (target `agent`)
  * or was pointed at by the user (target `external`). The user's own instance is
  * never recorded here: it is the default target and needs no bookkeeping.
- * See `docs/DESKTOP.md`.
+ * See `docs/cli/DESKTOP.md`.
  */
 import type { Session } from '../types.ts'
 

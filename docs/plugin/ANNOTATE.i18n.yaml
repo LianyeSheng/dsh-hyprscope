@@ -1,0 +1,40 @@
+# Bilingual-pair consistency record (sections keyed by the English heading slug path):
+# one entry per heading section, hashing each side's lines outside fenced code
+# blocks and excluding the language-switcher line, with paired-document link
+# targets normalized to a locale-neutral form. The header names no path, so the
+# same record is valid beside a pair's source and beside its installed copy.
+# After editing either side, re-record the pair:
+#   python3 .agents/se/scripts/docs/verify_translation_pairing.py --write <pair>
+/desktop-annotation-session-hyprscope-message-annotate:
+  en: a2b28067b9641a1c
+  zh: 7d6eb4fd44e129b1
+/desktop-annotation-session-hyprscope-message-annotate/1-positioning-and-boundaries:
+  en: d860368d369b4eac
+  zh: cffdc32f8aa84f19
+/desktop-annotation-session-hyprscope-message-annotate/2-one-session-clock:
+  en: a835cc3358081bd9
+  zh: fc5951ba204e3419
+/desktop-annotation-session-hyprscope-message-annotate/3-geometry-not-raw-input:
+  en: fd3ab57acd68bddf
+  zh: 5f94f8e4d72d773b
+/desktop-annotation-session-hyprscope-message-annotate/4-voice-pipeline:
+  en: ea251f13124516e8
+  zh: 932975e201c75fba
+/desktop-annotation-session-hyprscope-message-annotate/5-alignment-rules:
+  en: ed5ed534814ca0ac
+  zh: ba8809fd4b95691a
+/desktop-annotation-session-hyprscope-message-annotate/6-clean-image-and-intent-card:
+  en: f2f8d0a87a702a67
+  zh: 71c76c1dd0e24d6e
+/desktop-annotation-session-hyprscope-message-annotate/7-failure-and-degradation:
+  en: 102ff7da4699650d
+  zh: 9f694059ca56eb55
+/desktop-annotation-session-hyprscope-message-annotate/8-limits:
+  en: 9bd978b70d2cdd20
+  zh: 8c4f52ba6f29608d
+/desktop-annotation-session-hyprscope-message-annotate/9-platform-adapter:
+  en: a479d7f1a1790d50
+  zh: 688f51b14fe48289
+/desktop-annotation-session-hyprscope-message-annotate/10-related-contracts:
+  en: 0c7f525776a4df71
+  zh: 50e4b63a2b8f1a86

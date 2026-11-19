@@ -1,6 +1,6 @@
 # 观察与能力契约
 
-[English](/docs/PROTOCOL.md) | 中文
+[English](/docs/cli/PROTOCOL.md) | 中文
 
 这份文档固定 `hyprscope` 输出的字段含义，也记录控制面（`hyprscope control`）对外声明的能力边界。观察层的字段是 `dsh-cua` provider 的输入；改变桌面的能力只经 `hyprscope control` 暴露，不在只读命令里。
 
@@ -140,7 +140,7 @@ monitoradded>>HDMI-A-1
 
 ### 5.1 能力基线
 
-`doctor --json` 还会报告它观察的是哪个桌面，以及 `hyprscope control` 针对该桌面门控的能力基线（capability baseline，见 [COMPATIBILITY.md](/docs/COMPATIBILITY.zh.md) 和 [BASELINE.md](/docs/BASELINE.zh.md)）。`doctor` 只读已验收的文件：从不探测、不写文件、也不申请租约。
+`doctor --json` 还会报告它观察的是哪个桌面，以及 `hyprscope control` 针对该桌面门控的能力基线（capability baseline，见 [COMPATIBILITY.md](/docs/cli/COMPATIBILITY.zh.md) 和 [BASELINE.md](/docs/cli/BASELINE.zh.md)）。`doctor` 只读已验收的文件：从不探测、不写文件、也不申请租约。
 
 ```json
 {
@@ -196,7 +196,7 @@ monitoradded>>HDMI-A-1
 
 ## 7. 版本敏感点
 
-- Hyprland 0.57 的 `dispatch` 参数是 **Lua 表达式**（例如 `hl.dsp.focus({ window = "address:0x…" })`），不是老的 dispatcher 名；`keyword` 在 Lua 配置下无效，配置变更走 `eval`。工具只支持 Lua provider：`configProvider` 不是 `lua` 时控制子集整体不可用（对应 [COMPATIBILITY.md](/docs/COMPATIBILITY.zh.md) 里的 `dispatch.lua`）。
+- Hyprland 0.57 的 `dispatch` 参数是 **Lua 表达式**（例如 `hl.dsp.focus({ window = "address:0x…" })`），不是老的 dispatcher 名；`keyword` 在 Lua 配置下无效，配置变更走 `eval`。工具只支持 Lua provider：`configProvider` 不是 `lua` 时控制子集整体不可用（对应 [COMPATIBILITY.md](/docs/cli/COMPATIBILITY.zh.md) 里的 `dispatch.lua`）。
 - `hyprctl -j cursorpos` 在 0.57 返回 `{"x","y"}`；更老版本可能是纯文本 `x, y`，解析要容忍。
 - `hyprland.lock` 的格式是 `<pid>\n<wayland-display>`；只读第一行也能工作，display 会退回扫描。
 - 事件名会随版本增加（`ext_workspace_manager_v1` 相关、`screencopy` 等），消费者必须忽略未知事件而不是报错。
@@ -236,7 +236,7 @@ monitoradded>>HDMI-A-1
 3. 记录归属：`decision.json` / `control.json` 带 `leaseId`，不属于当前租约的记录被忽略。
 4. 输入不重放：交还之后排队中的动作一律不执行；已发出的输入不可撤销（注入启用后成立）。
 5. 强制收口：`panic` 在 5 秒内没等到 holder 收口，就自己停浮层、写终态、放锁。
-6. 续期不重新征求同意：`renewLease` 只续 `granted`、未过期、同一 `leaseId` 的租约，`attempt` 每次加一且不超过 `maxResumes`，`planBound` 和 `planSummary` 不变（细节见 `docs/LEASE.md`）。
+6. 续期不重新征求同意：`renewLease` 只续 `granted`、未过期、同一 `leaseId` 的租约，`attempt` 每次加一且不超过 `maxResumes`，`planBound` 和 `planSummary` 不变（细节见 `docs/cli/LEASE.md`）。
 
 ### 兜底快捷键
 
@@ -252,7 +252,7 @@ CUA 的 `click` / `typeText` 等方法仍然没有实现，`getCapabilities().ac
 
 `hyprscope` 仍然只读。改变桌面状态的唯一命令是 `hyprscope control run <plan.json | ->`：它必须持有 §8 的一份绑定了提交计划（`planBound: true`）的租约。`hyprscope control install-bind` 只写 Hyprland 配置文件，不改变桌面状态；`hyprscope message` 面只画浮层、写消息与标注会话文件，同样不是控制路径。
 
-计划执行、干扰询问、恢复模型和 fault 记录见 `docs/PLAN.md`；换机器、换版本之后这些能力还成不成立，见 [COMPATIBILITY.md](/docs/COMPATIBILITY.zh.md)（能力基线，已实现并在运行时生效）。
+计划执行、干扰询问、恢复模型和 fault 记录见 `docs/cli/PLAN.md`；换机器、换版本之后这些能力还成不成立，见 [COMPATIBILITY.md](/docs/cli/COMPATIBILITY.zh.md)（能力基线，已实现并在运行时生效）。
 
 新增能力面：
 
@@ -276,12 +276,12 @@ Lua 表达式由执行器按白名单模板拼接，变量先过格式校验（�
 
 明确不提供：`exec`、`keyword`、`kill`、`plugin`、任意 dispatcher、任意 Lua、shell 命令、配置修改。唯一的 `hyprctl reload` 在 `install-bind` 里，只用于让受管快捷键生效。
 
-计划记录（`out/runs/<runId>/`）不是观察契约的一部分，字段随执行器演进；只有 `docs/PLAN.md` 里列出的 fault 记录字段对调用方有稳定性承诺。
+计划记录（`out/runs/<runId>/`）不是观察契约的一部分，字段随执行器演进；只有 `docs/cli/PLAN.md` 里列出的 fault 记录字段对调用方有稳定性承诺。
 ## 10. 桌面消息面（`hyprscope message`）
 
 `hyprscope message` 既不是观察也不是控制：它负责提示条/输入浮层，以及运行中的 DSH Host 读取的那些文件。它不拿租约、不改桌面状态，也不贡献任何观察字段。
 
-`open`（`--json`）返回 `{ command: "open", dir, overlay: { pid, log }, request: { nonce, at }, dsh: "available" | "unavailable" }`；`annotate` 返回同样的形状，`command: "annotate"`，`request.mode: "annotate"`；`overlay` 返回 `{ command: "overlay", dir, overlay }`；`stop` 返回 `{ command: "stop", dir }`。`--lang zh|en` 选择这条命令启动的浮层语言（默认 `zh`，或 `HYPRSCOPE_LANG`）。文件在 `$XDG_STATE_HOME/hyprscope/message`（或 `HYPRSCOPE_MESSAGE_DIR`）：Host 写 `status.json`、`ack.json`、`last-session.json` 和 `overlay.log`；CLI 写 `open.json` 和 `quit.json`；`hyprscope control install-bind` 把消息键和标注键记进 `shortcut.txt` 与 `annotate-shortcut.txt`；浮层把每条消息写成 `outbox/` 里的一份 JSON 文档。浮层是用 `-n` 启动的 Quickshell 进程，重复调用也只保留一个实例；没有 compositor 是 `NO_SESSION`，没有 Quickshell 是 `OVERLAY_FAILED`。标注请求有自己的一套会话文件，见 §11。插件那一半和注入消息的形状见 [docs/DSH-PLUGIN.zh.md](/docs/DSH-PLUGIN.zh.md)。
+`open`（`--json`）返回 `{ command: "open", dir, overlay: { pid, log }, request: { nonce, at }, dsh: "available" | "unavailable" }`；`annotate` 返回同样的形状，`command: "annotate"`，`request.mode: "annotate"`；`overlay` 返回 `{ command: "overlay", dir, overlay }`；`stop` 返回 `{ command: "stop", dir }`。`--lang zh|en` 选择这条命令启动的浮层语言（默认 `zh`，或 `HYPRSCOPE_LANG`）。文件在 `$XDG_STATE_HOME/hyprscope/message`（或 `HYPRSCOPE_MESSAGE_DIR`）：Host 写 `status.json`、`ack.json`、`last-session.json` 和 `overlay.log`；CLI 写 `open.json` 和 `quit.json`；`hyprscope control install-bind` 把消息键和标注键记进 `shortcut.txt` 与 `annotate-shortcut.txt`；浮层把每条消息写成 `outbox/` 里的一份 JSON 文档。浮层是用 `-n` 启动的 Quickshell 进程，重复调用也只保留一个实例；没有 compositor 是 `NO_SESSION`，没有 Quickshell 是 `OVERLAY_FAILED`。标注请求有自己的一套会话文件，见 §11。插件那一半和注入消息的形状见 [docs/plugin/DSH-PLUGIN.zh.md](/docs/plugin/DSH-PLUGIN.zh.md)。
 
 ## 11. 桌面标注会话（`hyprscope message annotate`）
 

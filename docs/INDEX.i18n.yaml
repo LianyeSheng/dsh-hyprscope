@@ -6,14 +6,20 @@
 # After editing either side, re-record the pair:
 #   python3 .agents/se/scripts/docs/verify_translation_pairing.py --write <pair>
 /documentation-index:
-  en: f9f8edf3691365b1
-  zh: adfcb42f4f9088b4
-/documentation-index/1-read-in-this-order:
-  en: a3eafa4cd1d7bfca
-  zh: 570d5c0210d9f6e1
-/documentation-index/2-where-the-motivation-lives:
-  en: c5a91a176dfd0720
-  zh: cb8d1bc20a8d6d45
-/documentation-index/3-contract-to-code-map:
-  en: de49505a56dfa4fc
-  zh: 0dd45591c78de4bd
+  en: 0acd4159080d47bf
+  zh: ecbd0b9195a92a58
+/documentation-index/1-cli-software:
+  en: dfa790b3897a9215
+  zh: 6addd380a9abefe7
+/documentation-index/2-plugin:
+  en: bbc9f38711425245
+  zh: ec121163d1bd44fa
+/documentation-index/3-cross-cutting-records:
+  en: 9afd63d5fdf73c49
+  zh: 10f70099b767560c
+/documentation-index/4-where-the-motivation-lives:
+  en: f40b6d1c80e9bf73
+  zh: 6ed3ba85f60a810a
+/documentation-index/5-contract-to-code-map:
+  en: 85a761f83b7eb3f7
+  zh: ebe59068dd79b353

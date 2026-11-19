@@ -54,7 +54,7 @@ export function baselinePaths(env: NodeJS.ProcessEnv = process.env, options: Bas
     dir,
     baselineFile: join(dir, signature === null ? 'baseline.json' : `${signature}.json`),
     pendingFile: join(dir, signature === null ? 'baseline.pending.json' : `${signature}.pending.json`),
-    // Raw evidence is a run artifact, not state: docs/BASELINE.md puts it under
+    // Raw evidence is a run artifact, not state: docs/cli/BASELINE.md puts it under
     // out/baseline/<probeId>/, gitignored, next to the run artifacts.
     evidenceRoot: env.HYPRSCOPE_BASELINE_EVIDENCE_DIR ?? new URL('../../out/baseline', import.meta.url).pathname,
   }

@@ -1,6 +1,6 @@
 # hyprscope 的 DSH 插件
 
-[English](/docs/DSH-PLUGIN.md) | 中文
+[English](/docs/plugin/DSH-PLUGIN.md) | 中文
 
 `plugins/dsh-hyprscope/` 是本项目原生、开箱即用的 DSH Host 插件组合包（bundle），把 hyprscope 的命令行变成模型可以调用的六个工具。DSH 会话不用再拼 `node bin/hyprscope.ts ...` 这样的 shell 命令：记住仓库路径、参数顺序和 `--json`，再自己解析输出，都是负担。它会带类型化参数调用 `hyprscope_observe`、`hyprscope_screenshot`、`hyprscope_events`、`hyprscope_plan`、`hyprscope_baseline` 或 `hyprscope_desktop`，拿回一个解析好的对象。
 
@@ -174,7 +174,7 @@ hyprscope_screenshot(scope: "layout", output: "/tmp/hyprscope-card.png")
 
 ## 安全边界如何成立
 
-插件只加工具，不加权限。它能做的一切都是 CLI 的某条子命令，真正决定边界的是 CLI：一面是只读面，一面是 `control` 面。这条边界写在 [docs/PROTOCOL.zh.md](/docs/PROTOCOL.zh.md)，租约和基线的契约分别在 [docs/LEASE.zh.md](/docs/LEASE.zh.md) 和 [docs/BASELINE.zh.md](/docs/BASELINE.zh.md)。
+插件只加工具，不加权限。它能做的一切都是 CLI 的某条子命令，真正决定边界的是 CLI：一面是只读面，一面是 `control` 面。这条边界写在 [docs/cli/PROTOCOL.zh.md](/docs/cli/PROTOCOL.zh.md)，租约和基线的契约分别在 [docs/cli/LEASE.zh.md](/docs/cli/LEASE.zh.md) 和 [docs/cli/BASELINE.zh.md](/docs/cli/BASELINE.zh.md)。
 
 - **只读工具仍然是只读的。** `hyprscope_observe`、`hyprscope_screenshot` 和 `hyprscope_events` 只启动裸的 `hyprscope` 命令，不会调用 `hyprscope control`。CLI 的只读侧从不加载租约、计划执行器、注入路径或桌面生命周期，插件自身也完全不导入仓库代码：它把 CLI 起成独立进程。插件不直接调用 `hyprctl` 或 `grim`，也不经过 shell。
 - **截图保留锁定时的默认拒绝。** 会话报告锁定时，截图工具会拒绝；只有调用方显式传 `allowLocked: true` 时才加 `--allow-locked`。重试和默认值都不会把它翻过来。

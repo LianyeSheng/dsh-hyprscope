@@ -1,6 +1,6 @@
 # DSH plugin for hyprscope
 
-English | [中文](/docs/DSH-PLUGIN.zh.md)
+English | [中文](/docs/plugin/DSH-PLUGIN.zh.md)
 
 `plugins/dsh-hyprscope/` is the project's native, plug-and-play DSH Host bundle; it turns the hyprscope CLI into six tools a model can call. Instead of composing `node bin/hyprscope.ts ...` shell commands — remembering the checkout path, the flag order and the `--json` switch, then parsing the result — a DSH session calls `hyprscope_observe`, `hyprscope_screenshot`, `hyprscope_events`, `hyprscope_plan`, `hyprscope_baseline` or `hyprscope_desktop` with typed arguments and gets a parsed object back.
 
@@ -174,7 +174,7 @@ A few points are worth knowing:
 
 ## How the safety boundary holds
 
-The plugin adds tools; it adds no permission. Everything it can do is one of the CLI's subcommands, and the boundary that decides is the CLI's: the read-only surface and the `control` surface. That boundary is described in [docs/PROTOCOL.md](/docs/PROTOCOL.md), and the lease and baseline contracts are in [docs/LEASE.md](/docs/LEASE.md) and [docs/BASELINE.md](/docs/BASELINE.md).
+The plugin adds tools; it adds no permission. Everything it can do is one of the CLI's subcommands, and the boundary that decides is the CLI's: the read-only surface and the `control` surface. That boundary is described in [docs/cli/PROTOCOL.md](/docs/cli/PROTOCOL.md), and the lease and baseline contracts are in [docs/cli/LEASE.md](/docs/cli/LEASE.md) and [docs/cli/BASELINE.md](/docs/cli/BASELINE.md).
 
 - **Read-only tools stay read-only.** `hyprscope_observe`, `hyprscope_screenshot` and `hyprscope_events` spawn only the bare `hyprscope` commands, never `hyprscope control`. The CLI's read-only side never loads the lease, the plan executor, the injection path or the desktop lifecycle, and the plugin does not import repository code at all: it starts the CLI as a separate process. The plugin never calls `hyprctl` or `grim` itself, and it never uses a shell.
 - **Screenshots keep the locked default.** The screenshot tool refuses while the session reports locked; only a caller that sets `allowLocked: true` makes it pass `--allow-locked`. No retry or default flips it.

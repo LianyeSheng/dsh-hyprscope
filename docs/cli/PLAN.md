@@ -1,12 +1,12 @@
 # Plan contract (`hyprscope control run`)
 
-English | [中文](/docs/PLAN.zh.md)
+English | [中文](/docs/cli/PLAN.zh.md)
 
 A plan is a bounded, statically reviewable sequence of desktop actions that the
 human approves as one unit. This document is the contract between the author who
 writes a plan and the executor that runs it under the control lease in
-[LEASE.md](/docs/LEASE.md); observation stays read-only as specified in
-[PROTOCOL.md](/docs/PROTOCOL.md). The author supplies data, the executor owns the only
+[LEASE.md](/docs/cli/LEASE.md); observation stays read-only as specified in
+[PROTOCOL.md](/docs/cli/PROTOCOL.md). The author supplies data, the executor owns the only
 code path into the compositor.
 
 ## 1. Positioning
@@ -177,8 +177,8 @@ naming the id, not a runtime fault. The baseline can only narrow what the code
 declares, and a `required` capability that was merely advertised never counts as
 measured. A `screenshot` step that names a `window` is gated by `capture.window`
 rather than `capture.grim` (see §4). See
-[COMPATIBILITY.md](/docs/COMPATIBILITY.md) §5 and
-[BASELINE.md](/docs/BASELINE.md) §6.
+[COMPATIBILITY.md](/docs/cli/COMPATIBILITY.md) §5 and
+[BASELINE.md](/docs/cli/BASELINE.md) §6.
 
 ## 4. Operations
 

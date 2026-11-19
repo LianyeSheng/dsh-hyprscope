@@ -4,7 +4,7 @@
  * Every mutating call proves it still holds the lease that approved this run:
  * right lease id, still `granted`, bound to a submitted plan, not expired. This
  * is a correctness mechanism until lease state moves outside the agent's uid
- * (see `docs/LEASE.md`).
+ * (see `docs/cli/LEASE.md`).
  */
 import { ErrorCode, HyprscopeError } from '../errors.ts'
 import { isActive, leasePaths, readState, type LeaseState } from '../lease/state.ts'

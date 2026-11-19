@@ -18,7 +18,7 @@
 // With no arguments it reads "git diff --cached --name-only".
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, posix } from 'node:path';
 
 const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
 const helperArg = String.fromCharCode(96);
@@ -34,9 +34,20 @@ const fail = (msg: string) => { failures.push(msg); };
 const warn = (msg: string) => { warnings.push(msg); };
 
 const skillPath = '.agents/skills/install-hyprscope/SKILL.md';
+// docs/ is split into docs/cli/ and docs/plugin/ and may nest deeper, so the
+// document scans walk the tree instead of listing one directory level.
+const docsMarkdown: string[] = [];
+const walkDocs = (rel: string) => {
+  for (const entry of readdirSync(join(root, rel), { withFileTypes: true })) {
+    const child = rel + '/' + entry.name;
+    if (entry.isDirectory()) walkDocs(child);
+    else if (entry.isFile() && entry.name.endsWith('.md')) docsMarkdown.push(child);
+  }
+};
+walkDocs('docs');
 const documents: string[] = ['AGENTS.md', 'README.md', 'README.zh.md', skillPath, '.circleci/config.yml'];
-for (const name of readdirSync(join(root, 'docs'))) {
-  if (name.endsWith('.md')) documents.push('docs/' + name);
+for (const name of docsMarkdown) {
+  if (!name.endsWith('.zh.md')) documents.push(name);
 }
 
 // 1. Every document reference to a pnpm script must resolve.
@@ -67,8 +78,8 @@ for (const file of documents) {
 
 // 2. Bilingual pairs are complete.
 const pairStems = ['README'];
-for (const name of readdirSync(join(root, 'docs'))) {
-  if (name.endsWith('.md') && !name.endsWith('.zh.md')) pairStems.push('docs/' + name.replace(/\.md$/, ''));
+for (const name of docsMarkdown) {
+  if (!name.endsWith('.zh.md')) pairStems.push(name.replace(/\.md$/, ''));
 }
 for (const stem of pairStems) {
   for (const suffix of ['.zh.md', '.i18n.yaml']) {
@@ -140,15 +151,15 @@ const touchedDoc = (target: string) => {
   return false;
 };
 const rules = [
-  { match: /^(src\/cli\.ts|src\/screenshot\.ts|src\/format\.ts)$/, needs: ['README.md', 'docs/PROTOCOL.md', skillPath], why: 'the read-only surface changed' },
-  { match: /^src\/plan\//, needs: ['docs/PLAN.md', 'docs/PROTOCOL.md'], why: 'the plan language or executor changed' },
-  { match: /^src\/lease\//, needs: ['docs/LEASE.md'], why: 'the lease protocol changed' },
-  { match: /^src\/message\//, needs: ['docs/PROTOCOL.md', skillPath], why: 'the desktop message or annotate protocol changed' },
-  { match: /^overlay\//, needs: ['docs/DSH-PLUGIN.md', skillPath], why: 'the desktop overlay changed' },
-  { match: /^src\/compat\//, needs: ['docs/COMPATIBILITY.md', 'docs/BASELINE.md'], why: 'the capability baseline changed' },
-  { match: /^src\/desktop\//, needs: ['docs/DESKTOP.md'], why: 'the agent desktop changed' },
-  { match: /^src\/inject\//, needs: ['docs/LEASE.md', 'docs/PLAN.md'], why: 'the injection helper changed' },
-  { match: /^plugins\/dsh-hyprscope\//, needs: ['docs/DSH-PLUGIN.md', skillPath], why: 'the DSH plugin changed' },
+  { match: /^(src\/cli\.ts|src\/screenshot\.ts|src\/format\.ts)$/, needs: ['README.md', 'docs/cli/PROTOCOL.md', skillPath], why: 'the read-only surface changed' },
+  { match: /^src\/plan\//, needs: ['docs/cli/PLAN.md', 'docs/cli/PROTOCOL.md'], why: 'the plan language or executor changed' },
+  { match: /^src\/lease\//, needs: ['docs/cli/LEASE.md'], why: 'the lease protocol changed' },
+  { match: /^src\/message\//, needs: ['docs/cli/PROTOCOL.md', skillPath], why: 'the desktop message or annotate protocol changed' },
+  { match: /^overlay\//, needs: ['docs/plugin/ANNOTATE.md', skillPath], why: 'the desktop overlay changed' },
+  { match: /^src\/compat\//, needs: ['docs/cli/COMPATIBILITY.md', 'docs/cli/BASELINE.md'], why: 'the capability baseline changed' },
+  { match: /^src\/desktop\//, needs: ['docs/cli/DESKTOP.md'], why: 'the agent desktop changed' },
+  { match: /^src\/inject\//, needs: ['docs/cli/LEASE.md', 'docs/cli/PLAN.md'], why: 'the injection helper changed' },
+  { match: /^plugins\/dsh-hyprscope\//, needs: ['docs/plugin/DSH-PLUGIN.md', skillPath], why: 'the DSH plugin changed' },
   { match: /^(tools\/|probe\/)/, needs: ['AGENTS.md', skillPath], why: 'a C helper or the Wayland probe changed' },
   { match: /^package\.json$/, needs: ['AGENTS.md', skillPath], why: 'the scripts changed' },
 ];
@@ -169,7 +180,13 @@ for (const path of changed) {
 // 8. docs/INDEX.md indexes every in-scope document and nothing stale.
 const indexEn = read('docs/INDEX.md');
 const indexZh = read('docs/INDEX.zh.md');
-const markdownLinks = (text: string) => [...text.matchAll(/\]\((\/[^)]*\.md)\)/g)].map((match) => match[1]);
+// INDEX links may be absolute (/docs/cli/PLAN.md) or relative to docs/
+// (cli/PLAN.md); normalize both to the root-relative form used below.
+const markdownLinks = (text: string) =>
+  [...text.matchAll(/\]\(([^)\s]+\.md)\)/g)]
+    .map((match) => match[1])
+    .filter((link) => !link.startsWith('http'))
+    .map((link) => (link.startsWith('/') ? link : '/' + posix.normalize('docs/' + link)));
 const enLinks = markdownLinks(indexEn);
 const zhLinks = markdownLinks(indexZh);
 const indexedStems = pairStems.filter((stem) => stem !== 'docs/INDEX');

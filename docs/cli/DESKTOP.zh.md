@@ -1,8 +1,8 @@
 # agent 专用桌面（`hyprscope control desktop`）
 
-[English](/docs/DESKTOP.md) | 中文
+[English](/docs/cli/DESKTOP.md) | 中文
 
-> 状态：**已实现**。`hyprscope control desktop start|attach|status|stop` 管理嵌套或挂接的实例，观察命令和控制命令都用 `--desktop user|agent|external` 选择目标，2026-11-18 的实机验证记录在 [VERIFICATION.md](/docs/VERIFICATION.zh.md)。能力基线（[COMPATIBILITY.md](/docs/COMPATIBILITY.zh.md)、[BASELINE.md](/docs/BASELINE.zh.md)）和租约（[LEASE.md](/docs/LEASE.zh.md)）在这里复用；§12 列出仍未决的问题。
+> 状态：**已实现**。`hyprscope control desktop start|attach|status|stop` 管理嵌套或挂接的实例，观察命令和控制命令都用 `--desktop user|agent|external` 选择目标，2026-11-18 的实机验证记录在 [VERIFICATION.md](/docs/VERIFICATION.zh.md)。能力基线（[COMPATIBILITY.md](/docs/cli/COMPATIBILITY.zh.md)、[BASELINE.md](/docs/cli/BASELINE.zh.md)）和租约（[LEASE.md](/docs/cli/LEASE.zh.md)）在这里复用；§12 列出仍未决的问题。
 
 ## 1. 它是什么
 

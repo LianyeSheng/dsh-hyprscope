@@ -62,7 +62,7 @@
 - 浮层此前是 requester 的子进程、stderr 走管道；requester 一退出管道关闭，浮层的下一次 stderr 写入就吃 SIGPIPE 直接死掉，回执永远渲染不出来。现在浮层用自己的日志 fd 并 `detach`，与 requester 生命周期解耦。
 - 横幅上的「立即收回」按钮原来调用一个内部同意入口，而它只在 consent 阶段有效，granted 阶段点了没用；改成调用 `hyprscope control panic`（走 holder 的交还路径）。
 
-**同意卡片不是认证**：这一轮还发现一个更根本的问题——同意卡片和注入在同一个 seat 上，agent 可以直接用 `bin/wl-inject` 点掉自己的「允许」。实测确认（用注入的点击测试按钮可用性时暴露）。已加的缓解是：注入 helper 现在要求租约证明（`--lease-state/--lease/--plan`），每条会注入的命令前重读 `state.json`，`phase` 不是 `granted`、id/hash 不匹配或过期就拒绝；`consent` 阶段注入实测返回 `lease gate: phase is "consent", not "granted"`，`revoked` 之后同样拒绝。另外每次批准都会记录来源：`grantedBy` 在 `status` 里可见（`overlay` 表示卡片按钮，`cli` 表示数据面）。同意状态仍然是同一 uid 下的数据面状态，同 uid 也能伪造；真正的边界需要独立 uid 的 broker 或独立 compositor，见 `docs/LEASE.md`。
+**同意卡片不是认证**：这一轮还发现一个更根本的问题——同意卡片和注入在同一个 seat 上，agent 可以直接用 `bin/wl-inject` 点掉自己的「允许」。实测确认（用注入的点击测试按钮可用性时暴露）。已加的缓解是：注入 helper 现在要求租约证明（`--lease-state/--lease/--plan`），每条会注入的命令前重读 `state.json`，`phase` 不是 `granted`、id/hash 不匹配或过期就拒绝；`consent` 阶段注入实测返回 `lease gate: phase is "consent", not "granted"`，`revoked` 之后同样拒绝。另外每次批准都会记录来源：`grantedBy` 在 `status` 里可见（`overlay` 表示卡片按钮，`cli` 表示数据面）。同意状态仍然是同一 uid 下的数据面状态，同 uid 也能伪造；真正的边界需要独立 uid 的 broker 或独立 compositor，见 `docs/cli/LEASE.md`。
 
 **阻塞式干扰询问（2026-11-17 第三轮）**：可恢复干扰不再自动修复。执行器先发布 `interference.json`（带 id、第 k/n 步、被打破的假设、倒计时），浮层弹出模态卡片，宿主选「继续执行」才恢复并重放，选「终止操作」或超时未答就 fault 并保留已确认步骤。计划里的 `repairGraceMs` 相应换成 `interferencePromptMs`（默认 12 秒）。（这一段记录的是当时的实现；第四轮把"原地修复"整体换成了派生恢复计划，`repairable`/`repairs` 字段和 `repairGraceMs` 都已从代码里删除，保留在这里只为说明演进过程。）
 
@@ -314,6 +314,6 @@ node bin/hyprscope.ts screenshot --window-app foot --output .tmp/ambiguous.png
 
 ## 没有覆盖到的
 
-多显示器、多 Hyprland 实例、多 seat、锁屏状态下的行为，这份记录里都没有实测条目，也没做跨版本对比；租约的物理输入拦截能力本来就不存在（见 [LEASE.zh.md](/docs/LEASE.zh.md)）。要下结论得在对应环境里再跑。
+多显示器、多 Hyprland 实例、多 seat、锁屏状态下的行为，这份记录里都没有实测条目，也没做跨版本对比；租约的物理输入拦截能力本来就不存在（见 [LEASE.zh.md](/docs/cli/LEASE.zh.md)）。要下结论得在对应环境里再跑。
 
 宿主窗口关闭这条路径（相对于 `hyprscope control desktop stop`）和一次成功的 external 桌面挂接，本轮都没有演练；只检查了用户自己签名的拒绝，因此这份记录覆盖的是 `desktop stop`，不是关掉宿主窗口。探针对两行匹配的歧义处理，以及它在多显示器布局上的指针原点，都没有在实机上演练过（这里只有一台 2560×1440 显示器）；两者只由夹具或单显示器约定覆盖。计划执行还有几点没做真机验证：焦点/工作区/全屏状态这三类前提的恢复只有单元测试，实机只覆盖了几何前提；`maxResumes > 1` 的多次恢复、跨工作区恢复、特殊工作区都没有实测；`moveWindow`/`floatWindow`/`resizeWindow`/`fullscreenWindow` 在计划里的端到端效果只覆盖了 move/resize/float（dispatch 本身单独实测过，全屏恢复的 `fullscreen_state` 只在源码和单元测试层面确认）。

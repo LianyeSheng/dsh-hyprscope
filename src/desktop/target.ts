@@ -5,7 +5,7 @@
  * desktop the tool started (`agent`), and an instance the user attached
  * (`external`). The last two are recorded in `desktop.json`, but the record is
  * a cache and never an authority: every resolution re-checks the recorded pid
- * and sockets before discovery. See `docs/DESKTOP.md` §2.
+ * and sockets before discovery. See `docs/cli/DESKTOP.md` §2.
  */
 import { statSync } from 'node:fs'
 import { join } from 'node:path'

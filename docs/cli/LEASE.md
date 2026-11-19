@@ -1,6 +1,6 @@
 # Control lease (`hyprscope control`)
 
-English | [中文](/docs/LEASE.zh.md)
+English | [中文](/docs/cli/LEASE.zh.md)
 
 `hyprscope control` lets an agent briefly take over desktop control **after the host consents**, and gives control back when the run ends, the lease times out, or the host presses the shortcut. What it manages is "who is in control", not input interception: that point is spelled out under [boundaries](#边界为什么不做输入拦截) below.
 
@@ -120,7 +120,7 @@ Every `hyprscope control ...` command also accepts `--lang <zh|en>`: it selects 
 
 `--desktop user|agent|external` selects the desktop that `run`, `ops`, `status`, `panic`, `baseline` and `desktop` address; omitted means `user`. `status` and `panic` operate on that desktop's per-signature lease, so `panic` must name the desktop that holds it.
 
-`run` first reads the accepted capability baseline of the desktop it addresses — the machine-wide `$XDG_STATE_HOME/hyprscope/baseline.json` for `user`, or `$XDG_STATE_HOME/hyprscope/desktop/baseline/<signature>.json` for `agent`/`external` (see [BASELINE.md](/docs/BASELINE.md)): when it is missing, still a draft, `incomplete`, or its staleness verdict is not `fresh`, they fail with `CAPABILITY` before any consent card appears, so the host is never asked to approve something this machine cannot run. `baseline --probe` is the one control path that works without a baseline, because it is what creates one; it still takes its own short lease.
+`run` first reads the accepted capability baseline of the desktop it addresses — the machine-wide `$XDG_STATE_HOME/hyprscope/baseline.json` for `user`, or `$XDG_STATE_HOME/hyprscope/desktop/baseline/<signature>.json` for `agent`/`external` (see [BASELINE.md](/docs/cli/BASELINE.md)): when it is missing, still a draft, `incomplete`, or its staleness verdict is not `fresh`, they fail with `CAPABILITY` before any consent card appears, so the host is never asked to approve something this machine cannot run. `baseline --probe` is the one control path that works without a baseline, because it is what creates one; it still takes its own short lease.
 
 `--max-resumes` takes `0..3` (default `1`) and is the recovery count the consent card covers: `0` means the first recoverable interference faults directly without showing the prompt card. `--dry-run` prints this allowance too. `--consent` applies to `run` and to `baseline --probe`; each attempt's TTL for `run` is the plan's `budgetMs` plus 20000ms of margin.
 
@@ -171,7 +171,7 @@ The `id` in `interference.json` prevents old replies from crossing over. What th
 
 This also means that when the host touches the desktop in the middle of plan execution, they are asked first rather than silently "corrected". These are collaborative semantics, not a forced freeze; the reason is in the previous section.
 
-Plan format, the predicate table, the recovery model and fault records are in `docs/PLAN.md`.
+Plan format, the predicate table, the recovery model and fault records are in `docs/cli/PLAN.md`.
 
 ## Current limitations
 

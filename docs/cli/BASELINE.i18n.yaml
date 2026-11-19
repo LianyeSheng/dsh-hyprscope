@@ -6,8 +6,8 @@
 # After editing either side, re-record the pair:
 #   python3 .agents/se/scripts/docs/verify_translation_pairing.py --write <pair>
 /the-capability-baseline-file-baseline-json:
-  en: ac734ceb7279b002
-  zh: 203fdc1224641d03
+  en: 803b38010ce03bdf
+  zh: e1c4cbe744d0b279
 /the-capability-baseline-file-baseline-json/1-location-and-ownership:
   en: 79475cdba396769c
   zh: e1ec580821d1191c
@@ -15,8 +15,8 @@
   en: 2e9a64843d53fc8e
   zh: 63ad3efae2b937f1
 /the-capability-baseline-file-baseline-json/3-environment-fingerprint:
-  en: 346872db6e750cfa
-  zh: 0b0b6cfe4db5bb40
+  en: 049f072b17ec7d4f
+  zh: 87a28ed14c9e492d
 /the-capability-baseline-file-baseline-json/4-capability-entries:
   en: bd102523bb51dc8d
   zh: 5731bee3a230e359

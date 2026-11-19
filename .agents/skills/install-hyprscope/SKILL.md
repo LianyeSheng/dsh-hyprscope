@@ -321,4 +321,4 @@ Mark anything skipped as skipped. Never report "installed" for a stage that did 
 | The annotation shortcut opens nothing, or the surface stays in loading | DSH is not running, the running Host still has the pre-annotate bundle, or `desktopAnnotate` is `false` | Start or restart DSH, compare `doctor` `pluginVersion` with the checkout, check the config; `hyprscope message annotate --json` reports whether the Host heartbeat is visible |
 | A card-showing tool call seems to hang | It is waiting for the host to answer the consent card | Intentional: capture the card with a background CLI job plus a timed screenshot, and never answer it for the host |
 
-For the design behind the baseline, read `docs/BASELINE.md` and `docs/COMPATIBILITY.md`; for the plugin's configuration keys, read `docs/DSH-PLUGIN.md`.
+For the design behind the baseline, read `docs/cli/BASELINE.md` and `docs/cli/COMPATIBILITY.md`; for the plugin's configuration keys, read `docs/plugin/DSH-PLUGIN.md`; for the annotation surface (session files, review card and voice path), read `docs/plugin/ANNOTATE.md`.

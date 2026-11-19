@@ -4,8 +4,8 @@
  * The baseline is a per-machine verdict: what the probe actually measured, the
  * environment it was measured in, who approved it, and which capabilities may
  * be used at run time. It records machine capability only, never runtime state
- * and never application behavior. See `docs/COMPATIBILITY.md` and
- * `docs/BASELINE.md`.
+ * and never application behavior. See `docs/cli/COMPATIBILITY.md` and
+ * `docs/cli/BASELINE.md`.
  */
 
 /** Capability ids declared by code; the baseline can only subtract from them. */

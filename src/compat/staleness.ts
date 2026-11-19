@@ -5,7 +5,7 @@
  * running instance still matches it. The comparison fails toward fewer
  * capabilities: a value the baseline does not record is `unverified`, and a
  * value the live compositor cannot report is `stale`, so neither is ever
- * mistaken for agreement. See `docs/COMPATIBILITY.md` §5.1.
+ * mistaken for agreement. See `docs/cli/COMPATIBILITY.md` §5.1.
  */
 import { hyprctlJson } from '../hyprctl.ts'
 import type { RawStatus, RawVersion, Session } from '../types.ts'

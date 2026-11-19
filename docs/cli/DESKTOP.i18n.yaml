@@ -6,8 +6,8 @@
 # After editing either side, re-record the pair:
 #   python3 .agents/se/scripts/docs/verify_translation_pairing.py --write <pair>
 /the-agent-desktop-hyprscope-control-desktop:
-  en: 644d3f82180f37c6
-  zh: 1f56643d525d6d56
+  en: be2051f26779aac3
+  zh: 3034b2a9b2a9f657
 /the-agent-desktop-hyprscope-control-desktop/1-what-it-is:
   en: 745df99aa6b5ae72
   zh: 002881d31186ae09

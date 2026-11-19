@@ -1,8 +1,8 @@
 # 计划契约（`hyprscope control run`）
 
-[English](/docs/PLAN.md) | 中文
+[English](/docs/cli/PLAN.md) | 中文
 
-计划是一串有界、可静态评审的桌面动作，由宿主作为一个整体批准。本文档是写计划的作者与在 [LEASE.zh.md](/docs/LEASE.zh.md) 所述的控制租约下执行它的执行器之间的契约；观察按 [PROTOCOL.zh.md](/docs/PROTOCOL.zh.md) 的规定保持只读。作者提供数据，执行器掌握通往 compositor 的唯一代码路径。
+计划是一串有界、可静态评审的桌面动作，由宿主作为一个整体批准。本文档是写计划的作者与在 [LEASE.zh.md](/docs/cli/LEASE.zh.md) 所述的控制租约下执行它的执行器之间的契约；观察按 [PROTOCOL.zh.md](/docs/cli/PROTOCOL.zh.md) 的规定保持只读。作者提供数据，执行器掌握通往 compositor 的唯一代码路径。
 
 ## 1. 定位
 
@@ -119,7 +119,7 @@
 
 隐式谓词不写在计划里：每个步骤之前都会重读租约并重新检查预算，在检查声明的 `requires` 之前会先排空事件流。
 
-`capabilities` 列会在同意卡片出现之前对照已验收的能力基线（capability baseline）检查；缺少某项能力是一次 `CAPABILITY` 失败，并指明该 id，而不是运行时 fault。基线只能收窄代码声明的内容，仅被 advertised 的 `required` 能力永远不算 measured。带 `window` 的 `screenshot` 步骤由 `capture.window` 门控，而不是 `capture.grim`（见 §4）。见 [COMPATIBILITY.md](/docs/COMPATIBILITY.zh.md) §5 和 [BASELINE.md](/docs/BASELINE.zh.md) §6。
+`capabilities` 列会在同意卡片出现之前对照已验收的能力基线（capability baseline）检查；缺少某项能力是一次 `CAPABILITY` 失败，并指明该 id，而不是运行时 fault。基线只能收窄代码声明的内容，仅被 advertised 的 `required` 能力永远不算 measured。带 `window` 的 `screenshot` 步骤由 `capture.window` 门控，而不是 `capture.grim`（见 §4）。见 [COMPATIBILITY.md](/docs/cli/COMPATIBILITY.zh.md) §5 和 [BASELINE.md](/docs/cli/BASELINE.zh.md) §6。
 
 ## 4. 操作
 

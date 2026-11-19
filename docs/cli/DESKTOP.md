@@ -1,8 +1,8 @@
 # The agent desktop (`hyprscope control desktop`)
 
-English | [中文](/docs/DESKTOP.zh.md)
+English | [中文](/docs/cli/DESKTOP.zh.md)
 
-> Status: **implemented**. `hyprscope control desktop start|attach|status|stop` manage a nested or attached instance, `--desktop user|agent|external` selects one on the observation and control surfaces, and the live verification from 2026-11-18 is in [VERIFICATION.md](/docs/VERIFICATION.md). The capability baseline ([COMPATIBILITY.md](/docs/COMPATIBILITY.md), [BASELINE.md](/docs/BASELINE.md)) and the lease ([LEASE.md](/docs/LEASE.md)) are reused here; §12 lists what remains open.
+> Status: **implemented**. `hyprscope control desktop start|attach|status|stop` manage a nested or attached instance, `--desktop user|agent|external` selects one on the observation and control surfaces, and the live verification from 2026-11-18 is in [VERIFICATION.md](/docs/VERIFICATION.md). The capability baseline ([COMPATIBILITY.md](/docs/cli/COMPATIBILITY.md), [BASELINE.md](/docs/cli/BASELINE.md)) and the lease ([LEASE.md](/docs/cli/LEASE.md)) are reused here; §12 lists what remains open.
 
 ## 1. What it is
 

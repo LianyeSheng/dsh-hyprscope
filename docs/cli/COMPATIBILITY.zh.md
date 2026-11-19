@@ -1,6 +1,6 @@
 # 兼容性与能力基线
 
-[English](/docs/COMPATIBILITY.md) | 中文
+[English](/docs/cli/COMPATIBILITY.md) | 中文
 
 > 状态：**已实现**。`src/compat/` 负责能力目录、基线读取器、有效集规则和陈旧比对；`src/compat/probe.ts` 测量这台机器，`hyprscope control baseline --probe/--show` 是命令接口（放宽已验收基线的那次探针自己会要一张确认卡），`doctor` 报告基线摘要和陈旧判定。探针的只读阶段留在 `src/compat/probe.ts`；每个会改变桌面的测量都是 `src/compat/probeplan.ts` 构建的一份测量计划里的一步，由普通计划执行器在内部测量模式下、在探针自己的租约和同一套注入门控下运行。这份文档解释这个安装步骤为什么存在、必须保证什么。
 
@@ -115,7 +115,7 @@
 - 批准之后探针打开自带的测试窗口（`probe/wl-scratch.c`，产物 `bin/wl-scratch`，由 `pnpm run build:scratch` 编译），等它 map 出来，向它发一次 `SIGUSR1`，让它解除固定的 320×200 尺寸提示（这样 resize 往返才是真的），然后通过 `executePlan` 在内部测量模式下执行测量计划；
 - 声明的前提不成立、dispatcher 被拒绝、或者后置条件读不回来的步骤会被记录下来，执行继续；这些记录就是测量证据，决定受影响能力记成 `unsupported` 还是 `unknown`。只有安全失败会让这次运行停下：租约丢失或被撤销、计划的时间预算、外部对桌面的改动。测量模式从不恢复、从不挂起，也从不弹出干扰询问；
 - `hyprctl dispatch` 没报错只能证明表达式被接受，永远不能证明效果发生了；只有效果读回来，一次 dispatch 才算证据。因此计划声明自己的 `expect` 谓词，窗口 op（`floatWindow`、`fullscreenWindow`、`moveWindow`、`resizeWindow`）只有在 dispatcher 接受调用、状态又读回来时才作数；探针在运行结束后读回测试窗口的几何（move 和 resize 的 dispatch 真的落地了），并读测试窗口自己的 stdout（注入的 `F12` 到了）。这些是观察，不是注入；
-- 运行结束后探针把测量结果与已验收基线比较：只收窄的结果直接写进已验收文件；更宽的结果留下待批准草稿，同一条命令随即向宿主弹出一张仅批准的确认卡，写着结论、能力计数和证据哈希，只有允许才写已验收的基线。拒绝或超时的卡让草稿保持待批准，下一次探针重新询问（[BASELINE.md](/docs/BASELINE.zh.md) §7）；
+- 运行结束后探针把测量结果与已验收基线比较：只收窄的结果直接写进已验收文件；更宽的结果留下待批准草稿，同一条命令随即向宿主弹出一张仅批准的确认卡，写着结论、能力计数和证据哈希，只有允许才写已验收的基线。拒绝或超时的卡让草稿保持待批准，下一次探针重新询问（[BASELINE.md](/docs/cli/BASELINE.zh.md) §7）；
 - 结束：关掉测试窗口，检查没有残留窗口和进程；
 - 预算 60 s，计划的时间预算耗尽或超时按"未测"处理；产物写 `out/baseline/<probeId>/`：`probe.jsonl`（只读事实、测量计划、每步结果、测试窗口的输出）、`summary.json`（结论草稿）、`capture.png`，以及测量运行自己的产物（计划快照和时间线）。
 

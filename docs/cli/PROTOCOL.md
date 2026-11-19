@@ -1,6 +1,6 @@
 # Observation and capability contract
 
-English | [中文](/docs/PROTOCOL.zh.md)
+English | [中文](/docs/cli/PROTOCOL.zh.md)
 
 This document fixes the meaning of the fields `hyprscope` outputs, and records the capability boundary of the control surface (`hyprscope control`). The observation layer's fields are the `dsh-cua` provider's input; the capabilities that change the desktop are exposed only through `hyprscope control`, never from the read-only commands.
 
@@ -140,7 +140,7 @@ The `capabilities` of `doctor --json`:
 
 ### 5.1 Capability baseline
 
-`doctor --json` also reports which desktop it observed and the capability baseline `hyprscope control` gates on for that desktop (see [COMPATIBILITY.md](/docs/COMPATIBILITY.md) and [BASELINE.md](/docs/BASELINE.md)). `doctor` only reads the accepted file: it never probes, writes, or takes a lease.
+`doctor --json` also reports which desktop it observed and the capability baseline `hyprscope control` gates on for that desktop (see [COMPATIBILITY.md](/docs/cli/COMPATIBILITY.md) and [BASELINE.md](/docs/cli/BASELINE.md)). `doctor` only reads the accepted file: it never probes, writes, or takes a lease.
 
 ```json
 {
@@ -196,7 +196,7 @@ Three points to watch when mapping:
 
 ## 7. Version-sensitive points
 
-- Hyprland 0.57's `dispatch` argument is a **Lua expression** (for example `hl.dsp.focus({ window = "address:0x…" })`), not the old dispatcher name; `keyword` has no effect under a Lua configuration, and configuration changes go through `eval`. The tool supports only the Lua provider: when `configProvider` is not `lua`, the whole control subset is unavailable (corresponding to `dispatch.lua` in [COMPATIBILITY.md](/docs/COMPATIBILITY.md)).
+- Hyprland 0.57's `dispatch` argument is a **Lua expression** (for example `hl.dsp.focus({ window = "address:0x…" })`), not the old dispatcher name; `keyword` has no effect under a Lua configuration, and configuration changes go through `eval`. The tool supports only the Lua provider: when `configProvider` is not `lua`, the whole control subset is unavailable (corresponding to `dispatch.lua` in [COMPATIBILITY.md](/docs/cli/COMPATIBILITY.md)).
 - `hyprctl -j cursorpos` returns `{"x","y"}` on 0.57; older versions may return plain text `x, y`, and the parser must tolerate that.
 - The format of `hyprland.lock` is `<pid>\n<wayland-display>`; reading only the first line also works, and the display falls back to scanning.
 - Event names grow with versions (`ext_workspace_manager_v1`-related ones, `screencopy`, and so on); consumers must ignore unknown events rather than error.
@@ -236,7 +236,7 @@ The heartbeat `heartbeat.json` is refreshed every 500ms by the requester/holder;
 3. Record ownership: `decision.json` / `control.json` carry `leaseId`; records that do not belong to the current lease are ignored.
 4. No input replay: queued actions are never executed after control is returned; input already sent cannot be undone (once injection is enabled).
 5. Forced close-out: if `panic` sees no holder close-out within 5 seconds, it stops the overlay, writes the terminal state, and releases the lock itself.
-6. Renewal does not re-ask for consent: `renewLease` only renews a lease that is `granted`, unexpired and has the same `leaseId`; `attempt` increments by one each time and never exceeds `maxResumes`, while `planBound` and `planSummary` stay unchanged (details in `docs/LEASE.md`).
+6. Renewal does not re-ask for consent: `renewLease` only renews a lease that is `granted`, unexpired and has the same `leaseId`; `attempt` increments by one each time and never exceeds `maxResumes`, while `planBound` and `planSummary` stay unchanged (details in `docs/cli/LEASE.md`).
 
 ### Failsafe shortcut
 
@@ -252,7 +252,7 @@ CUA's `click` / `typeText` and other methods are still unimplemented, and `getCa
 
 `hyprscope` remains read-only. The only command that changes desktop state is `hyprscope control run <plan.json | ->`: it must hold a lease from §8 that is bound to the submitted plan (`planBound: true`). `hyprscope control install-bind` only writes the Hyprland configuration file and does not change desktop state, and the `hyprscope message` surface only paints overlays and writes message and annotation session files, so neither is a control path.
 
-Plan execution, interference prompts, the recovery model and fault records are in `docs/PLAN.md`; whether these capabilities still hold after switching machines or versions is in [COMPATIBILITY.md](/docs/COMPATIBILITY.md) (the capability baseline, implemented and gated at run time).
+Plan execution, interference prompts, the recovery model and fault records are in `docs/cli/PLAN.md`; whether these capabilities still hold after switching machines or versions is in [COMPATIBILITY.md](/docs/cli/COMPATIBILITY.md) (the capability baseline, implemented and gated at run time).
 
 New capability surface:
 
@@ -276,12 +276,12 @@ Lua expressions are assembled by the executor from allowlisted templates, with v
 
 Explicitly not provided: `exec`, `keyword`, `kill`, `plugin`, arbitrary dispatchers, arbitrary Lua, shell commands, configuration changes. The only `hyprctl reload` is in `install-bind`, used solely to make the managed shortcuts take effect.
 
-The plan record (`out/runs/<runId>/`) is not part of the observation contract; its fields evolve with the executor. Only the fault-record fields listed in `docs/PLAN.md` carry a stability commitment to callers.
+The plan record (`out/runs/<runId>/`) is not part of the observation contract; its fields evolve with the executor. Only the fault-record fields listed in `docs/cli/PLAN.md` carry a stability commitment to callers.
 ## 10. Desktop-message surface (`hyprscope message`)
 
 `hyprscope message` is neither observation nor control: it owns the hint/composer overlay and the files a running DSH Host reads. It takes no lease, changes no desktop state and contributes no observation fields.
 
-`open` (`--json`) returns `{ command: "open", dir, overlay: { pid, log }, request: { nonce, at }, dsh: "available" | "unavailable" }`; `annotate` returns the same shape with `command: "annotate"` and `request.mode: "annotate"`; `overlay` returns `{ command: "overlay", dir, overlay }`; `stop` returns `{ command: "stop", dir }`. `--lang zh|en` selects the language of the overlay this command starts (default `zh`, or `HYPRSCOPE_LANG`). Files live in `$XDG_STATE_HOME/hyprscope/message` (or `HYPRSCOPE_MESSAGE_DIR`): the Host writes `status.json`, `ack.json`, `last-session.json` and `overlay.log`; the CLI writes `open.json` and `quit.json`; `hyprscope control install-bind` records the message and annotation keys in `shortcut.txt` and `annotate-shortcut.txt`; and the overlay writes one JSON document per message into `outbox/`. The overlay is a Quickshell process started with `-n`, so repeated calls keep one instance; a missing compositor is `NO_SESSION` and a missing Quickshell is `OVERLAY_FAILED`. An annotate request has its own session files, documented in §11. The DSH plugin half and the injected message shape are in [docs/DSH-PLUGIN.md](/docs/DSH-PLUGIN.md).
+`open` (`--json`) returns `{ command: "open", dir, overlay: { pid, log }, request: { nonce, at }, dsh: "available" | "unavailable" }`; `annotate` returns the same shape with `command: "annotate"` and `request.mode: "annotate"`; `overlay` returns `{ command: "overlay", dir, overlay }`; `stop` returns `{ command: "stop", dir }`. `--lang zh|en` selects the language of the overlay this command starts (default `zh`, or `HYPRSCOPE_LANG`). Files live in `$XDG_STATE_HOME/hyprscope/message` (or `HYPRSCOPE_MESSAGE_DIR`): the Host writes `status.json`, `ack.json`, `last-session.json` and `overlay.log`; the CLI writes `open.json` and `quit.json`; `hyprscope control install-bind` records the message and annotation keys in `shortcut.txt` and `annotate-shortcut.txt`; and the overlay writes one JSON document per message into `outbox/`. The overlay is a Quickshell process started with `-n`, so repeated calls keep one instance; a missing compositor is `NO_SESSION` and a missing Quickshell is `OVERLAY_FAILED`. An annotate request has its own session files, documented in §11. The DSH plugin half and the injected message shape are in [docs/plugin/DSH-PLUGIN.md](/docs/plugin/DSH-PLUGIN.md).
 
 ## 11. Desktop annotation session (`hyprscope message annotate`)
 

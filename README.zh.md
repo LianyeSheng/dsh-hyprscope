@@ -79,7 +79,7 @@ node bin/hyprscope.ts control status                           # read-only: curr
 
 `run` 会在屏幕中央弹一张同意卡片（允许 / 拒绝，45 秒不选自动拒绝）。批准后卡片缩成顶部横幅，显示剩余时间，右侧有「立即收回」，run 执行计划并在结束时自动交还控制权，所以没有单独的申请和交还步骤。在此之前也可以撤销：用户按 `SUPER + ALT + ESC`、点横幅按钮，或者 TTL 到期。卡片和浮层外观跟随 `--lang <zh|en>`（默认中文，`HYPRSCOPE_LANG` 作为后备），CLI 的 stdout 仍是英文。
 
-由于 wayland 设计支出本身就是为了给单用户使用，所以无法在 Agent 控制期间直接屏蔽用户的操作，所以物理键鼠不会被冻结。这条边界的完整解释和兜底链条在 [docs/LEASE.zh.md](/docs/LEASE.zh.md)。
+由于 wayland 设计支出本身就是为了给单用户使用，所以无法在 Agent 控制期间直接屏蔽用户的操作，所以物理键鼠不会被冻结。这条边界的完整解释和兜底链条在 [docs/cli/LEASE.zh.md](/docs/cli/LEASE.zh.md)。
 
 ### agent 桌面
 
@@ -109,7 +109,7 @@ node bin/hyprscope.ts message open                  # what the composer shortcut
 node bin/hyprscope.ts message annotate              # what the annotation shortcut runs
 ```
 
-消息面需要 Quickshell、一个连得上的 Hyprland 会话，以及暴露 `sessionController` 的 DSH profile（Web 和 Desktop 组合包都有）。它不拿租约，也不改桌面状态：只画浮层、写消息文件，并通过 Host 自己的 prompt 准入敲一条消息。安装快捷键会改变 bind 数量，已验收的能力基线因此变 stale；控制运行之前要重新 probe，并让宿主确认新的计数。插件侧的行为、目标选择和状态文件在 [docs/DSH-PLUGIN.zh.md](/docs/DSH-PLUGIN.zh.md)。
+消息面需要 Quickshell、一个连得上的 Hyprland 会话，以及暴露 `sessionController` 的 DSH profile（Web 和 Desktop 组合包都有）。它不拿租约，也不改桌面状态：只画浮层、写消息文件，并通过 Host 自己的 prompt 准入敲一条消息。安装快捷键会改变 bind 数量，已验收的能力基线因此变 stale；控制运行之前要重新 probe，并让宿主确认新的计数。插件侧的行为、目标选择和状态文件在 [docs/plugin/DSH-PLUGIN.zh.md](/docs/plugin/DSH-PLUGIN.zh.md)。
 
 ### 批执行
 
@@ -126,7 +126,7 @@ node bin/hyprscope.ts control run plans/live-terminal.json             # show th
 
 宿主中途动鼠标、切工作区、抢焦点这类可恢复干扰，会先暂停并弹一张卡片，让你选「继续执行」还是「终止操作」。选继续，执行器不会就地修补，也不重放被中断的那一步：它把这次尝试挂起，用代码合成的恢复步骤加原计划剩下的步骤组成一份新计划，续借同一份租约、给这次尝试独立的执行时间窗，再接着跑。恢复只做机械的事——切工作区、取消全屏、恢复浮动/置顶/位置、回焦点、挪光标；一次运行默认最多恢复 1 次，`--max-resumes 3` 放宽到 3 次、`0` 关闭恢复，每次恢复在浮层回执和运行报告的 `attempts` 里都留痕。关窗口、改监视器、应用界面变化这类接不上的情况不弹卡片，直接终止，把事实交回 agent 重新规划——不会自作主张地"回滚"。
 
-计划能做的事被收得很窄：没有 `exec`、没有任意 dispatcher、没有配置修改，坐标默认相对窗口，绝对坐标属于低置信动作。完整的谓词表、op 表、恢复模型和 fault 格式在 [docs/PLAN.zh.md](/docs/PLAN.zh.md)。每次运行的产物在 `out/runs/<runId>/`（计划、时间线、截图、fault、恢复尝试各自的子目录）。
+计划能做的事被收得很窄：没有 `exec`、没有任意 dispatcher、没有配置修改，坐标默认相对窗口，绝对坐标属于低置信动作。完整的谓词表、op 表、恢复模型和 fault 格式在 [docs/cli/PLAN.zh.md](/docs/cli/PLAN.zh.md)。每次运行的产物在 `out/runs/<runId>/`（计划、时间线、截图、fault、恢复尝试各自的子目录）。
 
 ### 命令
 
@@ -153,7 +153,7 @@ node bin/hyprscope.ts control run plans/live-terminal.json             # show th
 
 `plugins/dsh-hyprscope/` 是本项目原生、开箱即用的 DSH Host 插件组合包（bundle），把这些命令变成模型可调用的六个工具，DSH 会话不用再自己拼 `node bin/hyprscope.ts ... --json` 命令。`hyprscope_observe`、`hyprscope_screenshot` 和 `hyprscope_events` 只读桌面；`hyprscope_plan`、`hyprscope_baseline` 和 `hyprscope_desktop` 走 `hyprscope control`；一次计划运行就是同意步骤，也覆盖了以前单步动作的用法。观察不需要同意；改变桌面仍然要宿主在控制租约里同意，并且要有一份已验收的能力基线，插件没有加绕开它们的办法。会弹同意卡的工具还接受可选的 `language`（`zh` 或 `en`；省略即沿用中文默认）：`hyprscope_plan` 的 `run` 和 `hyprscope_baseline` 的 `probe`。
 
-在**插件**页选择**添加插件**，填入绝对目录 `/home/jw/workspace/dsh-hyprscope/plugins/dsh-hyprscope`；或者让 DSH 里的 agent 用 `plugin_manager` 的 `install_bundle` 装同一个目录。组合包只在 Linux 上加载，需要 checkout 和 Node 22 与 DSH 在同一台机器上。除了六个工具，它还会在 DSH 后台运行时启动桌面消息提示条，并接收快捷键发来的消息。完整的工具面、配置键和限制在 [docs/DSH-PLUGIN.zh.md](/docs/DSH-PLUGIN.zh.md)。
+在**插件**页选择**添加插件**，填入绝对目录 `/home/jw/workspace/dsh-hyprscope/plugins/dsh-hyprscope`；或者让 DSH 里的 agent 用 `plugin_manager` 的 `install_bundle` 装同一个目录。组合包只在 Linux 上加载，需要 checkout 和 Node 22 与 DSH 在同一台机器上。除了六个工具，它还会在 DSH 后台运行时启动桌面消息提示条，并接收快捷键发来的消息。完整的工具面、配置键和限制在 [docs/plugin/DSH-PLUGIN.zh.md](/docs/plugin/DSH-PLUGIN.zh.md)。
 
 ## 为什么会话要自己找
 
@@ -161,9 +161,9 @@ DSH 进程是从服务或另一条链路起来的，环境里没有 `HYPRLAND_IN
 
 控制 socket 和 `grim` 于是落在同一个实例上，截图不会拍错 compositor。显式传 `--signature` 能把目标钉到某个实例，`--runtime-dir` 和 `HYPRSCOPE_*` 可以覆盖运行目录和 display，`doctor` 的 `discovery` 字段会说明这次实际走的是哪条路。租约也复用同一套发现逻辑，浮层进程同样拿到正确的 `WAYLAND_DISPLAY`。
 
-字段含义、坐标约定、错误码和与 `dsh-cua` 的映射在 [docs/PROTOCOL.zh.md](/docs/PROTOCOL.zh.md)，租约的完整设计在 [docs/LEASE.zh.md](/docs/LEASE.zh.md)，测试机当时的验证记录在 [docs/VERIFICATION.zh.md](/docs/VERIFICATION.zh.md)。换机器、升 Hyprland 或者改配置之后凭什么还敢接管桌面，思路在 [docs/COMPATIBILITY.zh.md](/docs/COMPATIBILITY.zh.md) 和 [docs/BASELINE.zh.md](/docs/BASELINE.zh.md)：安装时用探针把能力测一遍、由人验收成一份基线，运行时只能按它收窄。控制受这份基线门控：需要的能力如果没有测出可用，计划会在同意卡片之前被拒绝；运行失败也不会改动基线。
+字段含义、坐标约定、错误码和与 `dsh-cua` 的映射在 [docs/cli/PROTOCOL.zh.md](/docs/cli/PROTOCOL.zh.md)，租约的完整设计在 [docs/cli/LEASE.zh.md](/docs/cli/LEASE.zh.md)，测试机当时的验证记录在 [docs/VERIFICATION.zh.md](/docs/VERIFICATION.zh.md)。换机器、升 Hyprland 或者改配置之后凭什么还敢接管桌面，思路在 [docs/cli/COMPATIBILITY.zh.md](/docs/cli/COMPATIBILITY.zh.md) 和 [docs/cli/BASELINE.zh.md](/docs/cli/BASELINE.zh.md)：安装时用探针把能力测一遍、由人验收成一份基线，运行时只能按它收窄。控制受这份基线门控：需要的能力如果没有测出可用，计划会在同意卡片之前被拒绝；运行失败也不会改动基线。CLI 契约文档放在 `docs/cli/`，DSH 插件文档放在 `docs/plugin/`；阅读顺序见 [docs/INDEX.zh.md](/docs/INDEX.zh.md)。
 
-agent 桌面——给 agent 一个自己的嵌套 Hyprland——已经实现；设计与生命周期在 [docs/DESKTOP.zh.md](/docs/DESKTOP.zh.md)。
+agent 桌面——给 agent 一个自己的嵌套 Hyprland——已经实现；设计与生命周期在 [docs/cli/DESKTOP.zh.md](/docs/cli/DESKTOP.zh.md)。
 
 ## 已知限制
 
@@ -171,7 +171,7 @@ agent 桌面——给 agent 一个自己的嵌套 Hyprland——已经实现；�
 - 计划里的绝对坐标点击是低置信动作：谓词检查和注入之间仍有无法消除的缝隙（TOCTOU），所以这类步骤要求焦点、几何和结果断言一起成立；能用键盘和 dispatch 表达的动作优先用它们。
 - 单窗口截图要求 compositor 提供 `ext-image-copy-capture`、`ext-foreign-toplevel-list` 和 `ext-image-capture-source`，并且编译好 `bin/wl-capture`；helper 缺失时命令会提示运行 `pnpm run build:capture`，compositor 没有这些协议就截不了窗口。布局、监视器和区域截图仍然走 `grim`。
 - 只能截已映射的窗口：最小化或未映射的窗口会被拒绝，光标不会合成进图像，带 `no_screen_share` 规则或截图权限被拒绝的窗口会得到 compositor 的拒答占位图。
-- 租约状态和执行器都跑在 agent 同一个 uid 下，租约绑定和门控目前是正确性机制，不是安全边界；要变成真边界得把租约状态挪到独立 broker（见 `docs/LEASE.md`）。
+- 租约状态和执行器都跑在 agent 同一个 uid 下，租约绑定和门控目前是正确性机制，不是安全边界；要变成真边界得把租约状态挪到独立 broker（见 `docs/cli/LEASE.md`）。
 - 能力基线要由人验收之后控制才可用，而基线只反映上一次探针的结果：`doctor` 会报告漂移，`run` 遇到 stale 或 unverified 的基线会以 `CAPABILITY` 拒绝。换机器、升 Hyprland 或改配置之后要重跑 `hyprscope control baseline --probe`；旧版本写下的基线没有 effective 值，读出来是 `unverified`，需要重新探一次；放宽时探针会请宿主确认新基线。
 - agent 桌面是宿主上的一个窗口，不是另一台机器：它和 agent 共用 uid 和文件系统，嵌套输出跟着宿主窗口走（`--size` 只是请求，不是保证），关掉这个窗口就会销毁桌面。正在里面执行的运行会以 `target.desktop-closed` fault。
 - agent 桌面默认不跨 DSH 重启存活；新的 DSH 会话要自己起一个，或者挂接已有的实例。
@@ -179,4 +179,4 @@ agent 桌面——给 agent 一个自己的嵌套 Hyprland——已经实现；�
 - 恢复只覆盖 compositor 能观察、能用 dispatch 子集重建的前提；应用内部状态接不上的情况直接 fault，让 agent 重新规划，不假装恢复。
 - 锁状态是尽力而为：只读 logind 的 `LockedHint`，`locked: null` 只说明没有证据，不等于会话已解锁。
 - 同机跑多个 Hyprland 时默认按日志新旧挑一个，不确认它是否还响应，最好显式传 `--signature`。
-- 其余字段跟着 Hyprland 版本走，版本敏感点和字段定义看 [docs/PROTOCOL.zh.md](/docs/PROTOCOL.zh.md)，脚本请依赖 `--json`。
+- 其余字段跟着 Hyprland 版本走，版本敏感点和字段定义看 [docs/cli/PROTOCOL.zh.md](/docs/cli/PROTOCOL.zh.md)，脚本请依赖 `--json`。

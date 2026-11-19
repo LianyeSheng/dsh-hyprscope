@@ -27,14 +27,14 @@
   en: 492eeb2c09c6f57c
   zh: 23fbbf662a8d696f
 /observation-and-capability-contract/5-capability-report/5-1-capability-baseline:
-  en: c536cc7537409c70
-  zh: c8fb24fe4bfd55eb
+  en: dda48fe2050b10f3
+  zh: fa291492c82e716a
 /observation-and-capability-contract/6-mapping-to-dsh-cua:
   en: e12bb4c34418fb37
   zh: c80f7e8a086e501d
 /observation-and-capability-contract/7-version-sensitive-points:
-  en: 1a37e2c5b5058793
-  zh: b5a3b12aaac483d2
+  en: 615b97ec95695332
+  zh: 1afbd85ba2f8f329
 /observation-and-capability-contract/8-control-lease-hyprscope-control:
   en: c924fc3fa8f3f6dd
   zh: fe1d5c9754978018
@@ -42,8 +42,8 @@
   en: f4a10ad752a11edb
   zh: 6587f9970555e9ea
 /observation-and-capability-contract/8-control-lease-hyprscope-control/invariants:
-  en: d6d9e890d5473be4
-  zh: 59d5d1ac0b426afa
+  en: 676e497d33272872
+  zh: f5d709a14e3c3c93
 /observation-and-capability-contract/8-control-lease-hyprscope-control/failsafe-shortcut:
   en: b1895b67a6ea174f
   zh: ac7992cbeb95fe20
@@ -51,11 +51,11 @@
   en: 30a3728bf2222982
   zh: b204f500823b5d4a
 /observation-and-capability-contract/9-plan-execution-capability-declaration:
-  en: 389148beab0a90df
-  zh: 8077d3c1400ac976
+  en: 39ccccdf24eb12d2
+  zh: bb7b3be317dcb6be
 /observation-and-capability-contract/10-desktop-message-surface-hyprscope-message:
-  en: dfaa34c5dcdcc8a0
-  zh: 3abd8a2184d2d1bf
+  en: 4e5339baa0b1ffdc
+  zh: de5ee6cc0afff508
 /observation-and-capability-contract/11-desktop-annotation-session-hyprscope-message-annotate:
   en: af9ef67285add85e
   zh: 1b4771f4611cff5d

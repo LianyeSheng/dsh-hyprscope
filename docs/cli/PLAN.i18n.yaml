@@ -6,8 +6,8 @@
 # After editing either side, re-record the pair:
 #   python3 .agents/se/scripts/docs/verify_translation_pairing.py --write <pair>
 /plan-contract-hyprscope-control-run:
-  en: 99e40c48a3595272
-  zh: f197850306d7b847
+  en: 753453d347383511
+  zh: c340a9a1b35124a2
 /plan-contract-hyprscope-control-run/1-positioning:
   en: 0c5cd8d53feb7f20
   zh: 787262669f32b396
@@ -18,8 +18,8 @@
   en: 3c81c67d47f5c303
   zh: 1c208f6e5f43ea33
 /plan-contract-hyprscope-control-run/3-preconditions-and-expectations:
-  en: c71c07dacf50782b
-  zh: 8eaa40fec0d8b40c
+  en: a9b7cdc98db84559
+  zh: 90992450d9ddbb61
 /plan-contract-hyprscope-control-run/4-operations:
   en: bd48157d7ca5e252
   zh: af283ad708fd2d1e
