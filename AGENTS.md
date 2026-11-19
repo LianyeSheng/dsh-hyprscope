@@ -14,6 +14,14 @@ The boundary is a gate, not a style: read-only and message code have no route in
 
 The documents are the contract and the code implements it. Read `docs/INDEX.md` first: it gives the reading order, says where the design motivation lives, and maps each contract to its code. Read the English side of a pair only; when a document and the code disagree, the tests establish behavior and the document records intent, so fix both in the same commit.
 
+## Before you start
+
+Three rules gate every task, in this order.
+
+1. **Agree the implementation before starting.** Do not begin editing before the concrete implementation exists: the files and functions that change, the data flow between them, the tests that prove it and the paired documents that record it. Read the code you are about to change first, write the implementation down, and get the human's agreement when the change is more than a small fix. If the request is ambiguous or the contract is unclear, stop and ask; a wrong start costs more than a question, and "I will work it out while editing" is not a plan.
+2. **Survey prior art before designing.** Search the web for the projects, papers, standards and issue threads that already solve the same problem — a Wayland layer shell overlay, a global shortcut, an agent message bridge, a capability baseline, whatever the task touches — and analyze them instead of citing them: what each one does better, where it breaks, which parts apply to Hyprland, Quickshell, DSH and the gates above, and what is worth borrowing or deliberately rejecting. Local prior art in this repository (an earlier implementation, a rejected design in the documents, a closed issue) counts too. Record the conclusion with links where the design will be read.
+3. **Split the work across subagents.** Decompose the task into independent slices with disjoint write scopes and explicit dependencies, hand as many of them as can run concurrently to subagents, and balance the slices so the parallel branches finish at roughly the same time — a single long tail cancels the speed-up. Keep the planning, the shared task tree, the final diff review and the merge gate with the lead; a subagent's report is evidence to verify, not a result to trust.
+
 ## Environment and commands
 
 - **pnpm only**, never npm. Node >= 22 executes TypeScript directly; there is no build step. C is limited to the Wayland interface layer: `probe/wl-globals.c`, `probe/wl-scratch.c`, `tools/inject/wl-inject.c`, `tools/capture/wl-capture.c`.
