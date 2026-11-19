@@ -131,6 +131,11 @@ def walk(root: str) -> list:
             if is_directory:
                 if entry.name in NON_SOURCE_DIRECTORIES:
                     continue
+                # A nested checkout or worktree carries its own root-relative
+                # links; scanning it reports every pair twice and resolves the
+                # links against the wrong root.
+                if os.path.exists(os.path.join(absolute, entry.name, '.git')):
+                    continue
                 visit(child)
                 continue
             try:
