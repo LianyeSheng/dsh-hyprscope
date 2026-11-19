@@ -45,14 +45,41 @@
   en: d6d9e890d5473be4
   zh: 59d5d1ac0b426afa
 /observation-and-capability-contract/8-control-lease-hyprscope-control/failsafe-shortcut:
-  en: fb056301a1e154dc
-  zh: 662e350a5eafdc10
+  en: b1895b67a6ea174f
+  zh: ac7992cbeb95fe20
 /observation-and-capability-contract/8-control-lease-hyprscope-control/relationship-to-cua:
   en: 30a3728bf2222982
   zh: b204f500823b5d4a
 /observation-and-capability-contract/9-plan-execution-capability-declaration:
-  en: 447af18029439533
-  zh: 8bd55452805c981c
+  en: 389148beab0a90df
+  zh: 8077d3c1400ac976
 /observation-and-capability-contract/10-desktop-message-surface-hyprscope-message:
-  en: e8a05fd6b3ef0d0c
-  zh: d745435549153d0b
+  en: dfaa34c5dcdcc8a0
+  zh: 3abd8a2184d2d1bf
+/observation-and-capability-contract/11-desktop-annotation-session-hyprscope-message-annotate:
+  en: af9ef67285add85e
+  zh: 1b4771f4611cff5d
+/observation-and-capability-contract/11-desktop-annotation-session-hyprscope-message-annotate/11-1-session-directory-and-files:
+  en: 1726e2a7671e8722
+  zh: 85cfc6ccb2f00f35
+/observation-and-capability-contract/11-desktop-annotation-session-hyprscope-message-annotate/11-2-time-base:
+  en: 80014f0a0abe8b82
+  zh: 57e25047b73fbc5a
+/observation-and-capability-contract/11-desktop-annotation-session-hyprscope-message-annotate/11-3-images-screen-coordinates-and-normalization:
+  en: 66c5f87c33ac761b
+  zh: fe58fa881dce1083
+/observation-and-capability-contract/11-desktop-annotation-session-hyprscope-message-annotate/11-4-annotation-records:
+  en: 9a7d5603b2855228
+  zh: 8991001cf059a659
+/observation-and-capability-contract/11-desktop-annotation-session-hyprscope-message-annotate/11-5-voice-segments-and-vad-phrases:
+  en: bac424d40b593223
+  zh: 7b9cfdc3cf6834bc
+/observation-and-capability-contract/11-desktop-annotation-session-hyprscope-message-annotate/11-6-links-and-confidence:
+  en: 0480892a729b1968
+  zh: 461e82197b41da41
+/observation-and-capability-contract/11-desktop-annotation-session-hyprscope-message-annotate/11-7-submission-receipt-and-degradation:
+  en: ff9ef6c61ee6615c
+  zh: f3256ce31705977d
+/observation-and-capability-contract/11-desktop-annotation-session-hyprscope-message-annotate/11-8-overlay-states:
+  en: b24d80f44dc5cde5
+  zh: 0c904cff58eb1199

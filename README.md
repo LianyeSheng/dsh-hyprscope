@@ -8,7 +8,7 @@ A CLI tool for Hyprland desktop observation and consent-gated control, plus a na
 
 It starts from a concrete problem: a DSH process is often not inside the graphical session, `WAYLAND_DISPLAY` and `HYPRLAND_INSTANCE_SIGNATURE` are both empty, and it can neither see the desktop nor know which compositor to send a request to. hyprscope finds the session and shapes the state into stable fields, so that DSH's CUA provider can be wired up later.
 
-The project has one entry point and three command groups: `hyprscope` observes read-only, `hyprscope control` is the consent-gated control surface, and `hyprscope message` drives the desktop hint/composer that feeds a running DSH Host. They share session discovery, but a read-only command never loads the lease, executor or desktop lifecycle paths, the message surface loads none of them either, and every command that can change the desktop lives under `control`.
+The project has one entry point and three command groups: `hyprscope` observes read-only, `hyprscope control` is the consent-gated control surface, and `hyprscope message` drives the desktop hint, composer and annotation surface that feed a running DSH Host. They share session discovery, but a read-only command never loads the lease, executor or desktop lifecycle paths, the message surface loads none of them either, and every command that can change the desktop lives under `control`.
 
 ## Quick start
 
@@ -98,12 +98,15 @@ A running DSH Host with this plugin also gets a small hint on the desktop: DSH i
 
 Press the shortcut (default `SUPER + ALT + M`) and a small composer appears in the centre. Type, press Enter, and the message lands in the conversation the Host saw most recently — as an ordinary user message, with a screenshot of the desktop at that moment attached when the route accepts images. The agent therefore sees the screen without a browser page in front; if the image is skipped it can still call `hyprscope_screenshot` or `hyprscope_observe`. Esc cancels; the composer only steals the keyboard while it is visible.
 
-Install the shortcut once, together with the failsafe, and restart DSH so the plugin loads the bridge:
+A second shortcut (default `SUPER + ALT + A`) opens the annotation surface: freeze the screen, draw boxes, ellipses or arrows, hold Space to talk, review, and send. The agent receives a clean screenshot plus a structured intent card — the shapes, comments, window metadata and transcripts stay metadata, not pixels painted on the image.
+
+Install the shortcuts once, together with the failsafe, and restart DSH so the plugin loads the bridge:
 
 ```sh
-node bin/hyprscope.ts control install-bind          # SUPER + ALT + ESC revokes control; SUPER + ALT + M opens the composer
-node bin/hyprscope.ts control install-bind --message-key "SUPER + ALT + D"
-node bin/hyprscope.ts message open                  # what the shortcut runs; also works from a terminal
+node bin/hyprscope.ts control install-bind          # failsafe, composer and annotator shortcuts
+node bin/hyprscope.ts control install-bind --message-key "SUPER + ALT + D" --annotate-key "SUPER + ALT + N"
+node bin/hyprscope.ts message open                  # what the composer shortcut runs; also works from a terminal
+node bin/hyprscope.ts message annotate              # what the annotation shortcut runs
 ```
 
 The message surface needs Quickshell, a reachable Hyprland session, and a DSH profile that exposes `sessionController` (the Web and Desktop bundles do). It takes no lease and changes no desktop state: it paints an overlay, writes message files, and types through the Host's own prompt admission. Installing the shortcuts changes the bind count, so an accepted capability baseline becomes stale; re-probe and let the host accept the new count before control runs. The plugin-side behavior, target selection and state files are in [docs/DSH-PLUGIN.md](/docs/DSH-PLUGIN.md).
@@ -139,8 +142,8 @@ What a plan can do is kept very narrow: no `exec`, no arbitrary dispatcher, no c
 | `hyprscope control baseline --probe / --show` | Measure this machine and, when the result widens the accepted baseline, ask the host on a confirmation card and write the new baseline on Allow; `--show` reviews the evidence and the accepted baseline |
 | `hyprscope control status / panic` | Inspect the control lease; `panic` is the emergency revoke used by the failsafe shortcut (never an agent workflow step) |
 | `hyprscope control desktop start / attach / status / stop` | Start a nested agent desktop, attach an existing instance, inspect either, or stop it |
-| `hyprscope control install-bind / uninstall-bind` | Install or remove the managed shortcuts: `SUPER + ALT + ESC` failsafe and `SUPER + ALT + M` desktop message (`--key`, `--message-key`) |
-| `hyprscope message open / overlay / stop` | Open the desktop composer (the shortcut runs this), start its hint overlay, or ask it to exit; `--lang zh\|en`, `--json` |
+| `hyprscope control install-bind / uninstall-bind` | Install or remove the managed shortcuts: `SUPER + ALT + ESC` failsafe, `SUPER + ALT + M` desktop message and `SUPER + ALT + A` annotation (`--key`, `--message-key`, `--annotate-key`) |
+| `hyprscope message open / annotate / overlay / stop` | Open the desktop composer or the annotation surface (the shortcuts run these), start the hint overlay, or ask it to exit; `--lang zh\|en`, `--json` |
 
 Common options: `--json`, `--desktop <user|agent|external>`, `--signature <sig>`, `--runtime-dir <dir>`, `-h`, `-v`; `hyprscope` also accepts `--timeout <ms>`. `--desktop` selects the instance a command addresses; the observation commands and `hyprscope control run`, `status`, `panic`, `ops` and `baseline` accept it, and omitting it means the user's desktop. `hyprscope control` also accepts `--lang <zh|en>` on every control command: it selects the language of the consent or confirmation card and of the overlay it spawns (default `zh`, or the `HYPRSCOPE_LANG` environment value; an unknown value is a usage error), while CLI stdout stays English. Use `--json` in scripts; the human-readable output only aims to look decent, and column alignment and wording are not guaranteed stable; a bad argument exits with code 2, any other failure with code 1.
 

@@ -21,6 +21,12 @@ ShellRoot {
     // Recorded by install-bind; empty means no shortcut is installed yet, and
     // the pill says so instead of claiming a key that does nothing.
     property string shortcutKey: ""
+    // Written by install-bind next to shortcut.txt; missing falls back to the
+    // default combination so an older install still explains the key.
+    property string annotateShortcutKey: "SUPER + ALT + A"
+    // While an annotation surface is up the hint and composer stay hidden; the
+    // annotate panel owns the keyboard exclusively.
+    property bool annotateMode: false
     property string seenOpenNonce: ""
     property string seenQuitAt: ""
     property var ack: null
@@ -49,6 +55,7 @@ ShellRoot {
     property string ackPath: root.hasDirectory ? root.messageDir + "/ack.json" : ""
     property string quitPath: root.hasDirectory ? root.messageDir + "/quit.json" : ""
     property string shortcutPath: root.hasDirectory ? root.messageDir + "/shortcut.txt" : ""
+    property string annotateShortcutPath: root.hasDirectory ? root.messageDir + "/annotate-shortcut.txt" : ""
     property string outboxDir: root.hasDirectory ? root.messageDir + "/outbox" : ""
 
     // A heartbeat older than this is not a running Host; the plugin refreshes it
@@ -67,6 +74,7 @@ ShellRoot {
             hintRunning: "DSH 后台运行中",
             hintEnabled: "hyprscope 已启用",
             hintNoShortcut: "快捷键未安装",
+            hintAnnotate: "标注",
             hintSent: "已发送",
             composerTitle: "给 DSH 发一条桌面消息",
             composerSubtitleShot: "发送时会附上当前桌面截图，agent 直接就能看到桌面。",
@@ -84,6 +92,7 @@ ShellRoot {
             hintRunning: "DSH is running",
             hintEnabled: "hyprscope enabled",
             hintNoShortcut: "shortcut not installed",
+            hintAnnotate: "annotate",
             hintSent: "Sent",
             composerTitle: "Send a desktop message to DSH",
             composerSubtitleShot: "The current desktop screenshot travels with it, so the agent sees the desktop.",
@@ -147,8 +156,26 @@ ShellRoot {
         const fresh = !isNaN(at) && root.nowMs - at <= root.openRequestFreshMs
         if (!fresh) return
         root.lastActivityAt = root.nowMs
-        if (root.isAvailable()) root.openComposer()
-        else root.showUnavailable()
+        // A missing mode is the legacy composer request. For annotate the
+        // plugin waits 300 ms after seeing open.json before it takes the frozen
+        // screenshot, so hide the hint and composer in this same turn: nothing
+        // of this overlay may end up in the capture. The annotate surface itself
+        // stays invisible until active.json exists.
+        const annotate = parsed.mode === "annotate"
+        if (annotate) {
+            root.annotateMode = true
+            root.phase = ""
+            root.errorText = ""
+            root.draftText = ""
+            composerInput.text = ""
+        }
+        if (!root.isAvailable()) {
+            root.annotateMode = false
+            root.showUnavailable()
+            return
+        }
+        if (annotate) root.openAnnotate()
+        else root.openComposer()
     }
 
     function applyAck(text) {
@@ -176,16 +203,25 @@ ShellRoot {
         if (trimmed !== "") root.shortcutKey = trimmed
     }
 
+    function applyAnnotateShortcut(text) {
+        const trimmed = typeof text === "string" ? text.trim() : ""
+        root.annotateShortcutKey = trimmed !== "" ? trimmed : "SUPER + ALT + A"
+    }
+
     function applyQuit(text) {
         const parsed = root.parseJson(text)
         if (parsed === null || typeof parsed.at !== "string") return
         if (root.seenQuitAt === parsed.at) return
         root.seenQuitAt = parsed.at
         const at = Date.parse(parsed.at)
-        if (!isNaN(at) && root.nowMs - at <= root.openRequestFreshMs) Qt.quit()
+        if (!isNaN(at) && root.nowMs - at <= root.openRequestFreshMs) {
+            // Give the plugin a synchronous cancel before the process exits.
+            if (root.annotateMode) root.abortAnnotate("quit")
+            Qt.quit()
+        }
     }
 
-    // One reader prints five sections separated by a line holding only "---";
+    // One reader prints six sections separated by a line holding only "---";
     // JSON documents never contain such a line, and a missing file contributes
     // an empty section which the appliers treat as absent.
     function applyPoll(text) {
@@ -194,7 +230,7 @@ ShellRoot {
 "
         const sections = []
         let rest = text
-        for (let index = 0; index < 4; index += 1) {
+        for (let index = 0; index < 5; index += 1) {
             const at = rest.indexOf(separator)
             if (at < 0) {
                 sections.push(rest)
@@ -210,6 +246,7 @@ ShellRoot {
         root.applyAck(sections[2])
         root.applyQuit(sections[3])
         root.applyShortcut(sections[4])
+        root.applyAnnotateShortcut(sections[5])
     }
 
     // -- Liveness and visibility -------------------------------------------
@@ -221,7 +258,7 @@ ShellRoot {
     }
 
     function hintVisible() {
-        return root.isAvailable() && (root.phase === "" || root.phase === "sent")
+        return root.isAvailable() && !root.annotateMode && (root.phase === "" || root.phase === "sent")
     }
 
     function hintState() {
@@ -237,11 +274,15 @@ ShellRoot {
         const shortcut = root.shortcutKey === ""
             ? '<font color="#e0a04c">' + root.tr("hintNoShortcut") + '</font>'
             : '<font color="#8fa8c8">' + root.shortcutLabel() + '</font>'
+        const annotate = '<font color="#9aa3b2">' + root.tr("hintAnnotate") + '</font>&nbsp;'
+            + '<font color="#8fa8c8">' + root.annotateShortcutLabel() + '</font>'
         return '<font color="' + dotColor + '">&#9679;</font>' + gap
             + '<font color="' + stateColor + '">' + root.hintState() + '</font>' + gap
             + '<font color="#3a3f4a">|</font>' + gap
             + '<font color="#9aa3b2">' + root.tr("hintEnabled") + '</font>' + gap
-            + shortcut
+            + shortcut + gap
+            + '<font color="#3a3f4a">|</font>' + gap
+            + annotate
     }
 
     function composerVisible() {
@@ -255,12 +296,12 @@ ShellRoot {
     }
 
     // One compact badge for the hint: "SUPER + ALT + M" becomes "Super+Alt+M".
-    function shortcutLabel() {
-        if (root.shortcutKey === "") return ""
+    function keyLabel(key) {
+        if (key === "") return ""
         // The key is interpolated into RichText; keep only the characters a
         // Hyprland combination uses so a hand-edited shortcut.txt cannot inject
         // markup into the pill.
-        const safe = root.shortcutKey.replace(/[^A-Za-z0-9+ ]/g, "")
+        const safe = key.replace(/[^A-Za-z0-9+ ]/g, "")
         const parts = safe.split("+").map(function(part) { return part.trim() }).filter(function(part) {
             return part !== ""
         })
@@ -274,15 +315,66 @@ ShellRoot {
         }).join("+")
     }
 
+    function shortcutLabel() {
+        return root.keyLabel(root.shortcutKey)
+    }
+
+    function annotateShortcutLabel() {
+        return root.keyLabel(root.annotateShortcutKey)
+    }
+
     // -- Composer transitions ----------------------------------------------
     function openComposer() {
         if (root.phase === "sending") return
+        // A compose request can arrive while an annotation is open; cancel that
+        // session (the plugin sees cancel.json) before showing the composer.
+        if (root.annotateMode) root.abortAnnotate("compose")
         root.phase = "compose"
         root.errorText = ""
         root.sendId = ""
         root.draftText = ""
         composerInput.text = ""
         Qt.callLater(function() { composerInput.forceActiveFocus() })
+    }
+
+    // -- Annotate transitions ----------------------------------------------
+    function openAnnotate() {
+        if (root.phase === "sending") return
+        // applyOpen already hid the hint and composer for the capture window;
+        // this keeps the state explicit when another path opens the mode.
+        root.annotateMode = true
+        root.phase = ""
+        root.errorText = ""
+        root.draftText = ""
+        composerInput.text = ""
+    }
+
+    function annotateFinished(outcome) {
+        if (!root.annotateMode) return
+        root.lastActivityAt = root.nowMs
+        if (outcome === "sent") {
+            root.phase = "sent"
+            root.phaseSince = root.nowMs
+        } else {
+            root.phase = ""
+        }
+        // Unload on the next turn: annotateFinished runs inside the loaded
+        // surface's finished() signal, and deactivating the LazyLoader there
+        // would destroy the emitter while its handler is still on the stack.
+        Qt.callLater(function() { root.annotateMode = false })
+    }
+
+    // Unload the annotation surface after telling the plugin (synchronously)
+    // that the session is over. Used for quit.json, a dying Host and a compose
+    // request that takes over.
+    function abortAnnotate(reason) {
+        if (!root.annotateMode) return
+        const annotateItem = annotateLoader.item
+        if (annotateItem !== null && annotateItem !== undefined
+            && typeof annotateItem.abortForHost === "function") {
+            annotateItem.abortForHost(reason)
+        }
+        root.annotateMode = false
     }
 
     function showUnavailable() {
@@ -334,13 +426,14 @@ ShellRoot {
     // -- Reading and ticking ------------------------------------------------
     Process {
         id: reader
-        // One shell loop prints the five records separated by a bare "---" line;
+        // One shell loop prints the six records separated by a bare "---" line;
         // a missing file contributes an empty record and the appliers ignore it.
         // The script uses no quoting beyond its arguments, and paths travel as
         // positional parameters so no path is ever re-parsed.
         command: ["sh", "-c",
-            'first=1; for f in "$1" "$2" "$3" "$4" "$5"; do if [ "$first" = 0 ]; then echo; echo ---; fi; first=0; cat "$f" 2>/dev/null; done',
-            "hyprscope-message-reader", root.statusPath, root.openPath, root.ackPath, root.quitPath, root.shortcutPath]
+            'first=1; for f in "$1" "$2" "$3" "$4" "$5" "$6"; do if [ "$first" = 0 ]; then echo; echo ---; fi; first=0; cat "$f" 2>/dev/null; done',
+            "hyprscope-message-reader", root.statusPath, root.openPath, root.ackPath, root.quitPath,
+            root.shortcutPath, root.annotateShortcutPath]
         stdout: StdioCollector {
             onStreamFinished: root.applyPoll(this.text)
         }
@@ -370,6 +463,12 @@ ShellRoot {
         onTriggered: {
             root.nowMs = Date.now()
             if (!reader.running) reader.running = true
+            // The annotation surface must not outlive its Host: it holds the
+            // keyboard and masks the desktop, so release it as soon as the
+            // heartbeat says the Host is gone or stopped reporting.
+            if (root.annotateMode && root.status !== null && !root.isAvailable()) {
+                root.abortAnnotate("host")
+            }
             // Sent: show the receipt in the hint pill for a moment, then stand by.
             if (root.phase === "sent" && root.nowMs - root.phaseSince > 2200) root.phase = ""
             // A send that never gets an acknowledgement returns to the composer.
@@ -563,6 +662,22 @@ ShellRoot {
                 focus: root.phase === "unavailable"
                 Keys.onEscapePressed: root.closeComposer()
             }
+        }
+    }
+
+    // -- The annotation surface -------------------------------------------
+    // Loaded only for an annotate request. It is its own keyboard-exclusive
+    // layer surface and owns the annotate files; shell.qml only routes the open
+    // mode and unloads it when the session finishes, the Host dies or the user
+    // quits. `-n` on the Quickshell process keeps the overlay single-instance.
+    LazyLoader {
+        id: annotateLoader
+        active: root.annotateMode
+
+        AnnotateSurface {
+            messageDir: root.messageDir
+            hintLanguage: root.language
+            onFinished: function(outcome) { root.annotateFinished(outcome) }
         }
     }
 }

@@ -102,7 +102,9 @@ const PROMPT_TEXT =
   + 'closed or in another workspace: that message arrives as an ordinary user message and may carry a '
   + 'screenshot of the desktop at that moment. If it has no screenshot and the desktop matters, call '
   + 'hyprscope_screenshot (layout) or hyprscope_observe before answering; do not assume the user is looking '
-  + 'at the chat page.'
+  + 'at the chat page. A desktop annotation message arrives with a clean screenshot plus a structured card: '
+  + 'annotations, window metadata and speech transcripts are described in text, not drawn on the image, so read '
+  + 'the card geometry instead of guessing from pixels.'
 
 const DEFAULT_TIMEOUT_MS = 30_000
 const DEFAULT_CONTROL_TIMEOUT_MS = 180_000
@@ -258,6 +260,9 @@ function resolveSettings(config) {
     desktopMessage: raw.desktopMessage === undefined
       ? true
       : readConfigBoolean(raw.desktopMessage, 'config.desktopMessage'),
+    desktopAnnotate: raw.desktopAnnotate === undefined
+      ? true
+      : readConfigBoolean(raw.desktopAnnotate, 'config.desktopAnnotate'),
     messageLanguage: raw.messageLanguage === undefined
       ? 'zh'
       : readConfigLanguage(raw.messageLanguage, 'config.messageLanguage'),

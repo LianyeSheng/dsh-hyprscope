@@ -16,6 +16,7 @@ import { randomBytes } from 'node:crypto'
 import { mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
+import { createAnnotateRunner } from './annotate.js'
 
 /** Version of the status-file contract the overlay reads. */
 const STATUS_VERSION = 1
@@ -92,6 +93,7 @@ export function startDesktopMessageBridge(options) {
   const paths = {
     dir,
     statusFile: join(dir, 'status.json'),
+    openFile: join(dir, 'open.json'),
     ackFile: join(dir, 'ack.json'),
     outboxDir: join(dir, 'outbox'),
     lastSessionFile: join(dir, 'last-session.json'),
@@ -304,6 +306,33 @@ export function startDesktopMessageBridge(options) {
       AbortSignal.timeout(settings.controlTimeoutMs ?? 120_000))
   }
 
+  // The annotate surface reuses this bridge's Host adapters: it resolves the
+  // target Session the same way and admits one prompt per composed annotation
+  // session. It is disabled only by an explicit opt-out.
+  const annotate = settings.desktopAnnotate === false ? null : createAnnotateRunner({
+    ctx,
+    settings,
+    messagePaths: paths,
+    runCli,
+    warn,
+    resolveTarget,
+    prompt,
+  })
+
+  /**
+   * Read an annotate request written by `hyprscope message annotate`.
+   * The nonce changes per request; the runner ignores repeats.
+   */
+  const pollAnnotateRequest = async () => {
+    if (annotate === null) return
+    try {
+      const parsed = JSON.parse(await readFile(paths.openFile, 'utf8'))
+      if (isRecord(parsed) && parsed.mode === 'annotate') annotate.handleRequest(parsed)
+    } catch {
+      // No pending request, or a partial one; the next poll retries.
+    }
+  }
+
   /**
    * Deliver one composed message, including its optional screenshot.
    * @param {{id: string, text: string}} message Composed message.
@@ -401,6 +430,7 @@ export function startDesktopMessageBridge(options) {
         if (state.disposed) return
         await consume(name)
       }
+      await pollAnnotateRequest()
     } catch {
       // A missing outbox is recreated on the next start; polling continues.
     } finally {
@@ -484,6 +514,7 @@ export function startDesktopMessageBridge(options) {
   const dispose = async () => {
     if (state.disposed) return
     state.disposed = true
+    if (annotate !== null) await annotate.dispose().catch(() => {})
     if (pollTimer !== null) clearInterval(pollTimer)
     if (heartbeatTimer !== null) clearInterval(heartbeatTimer)
     pollTimer = null

@@ -240,7 +240,7 @@ monitoradded>>HDMI-A-1
 
 ### 兜底快捷键
 
-`hyprscope control install-bind` 在 `~/.config/hypr/hyprland.lua` 追加带标记的块，里面有两处 `hl.bind(...)`。兜底 bind 的参数是 `hl.dsp.exec_cmd("<绝对路径 node> <绝对路径 bin/hyprscope.ts> control panic --source shortcut")`，并带 `description = "hyprscope failsafe: revoke desktop control"`。桌面消息 bind（默认 `SUPER + ALT + M`，可用 `--message-key` 改）运行 `hyprscope message open`，带 `description = "hyprscope message: open the desktop composer"`。安装流程：先检查两个键都没被占用 → 备份配置 → 写块 → `hyprctl reload` → 用 `hyprctl binds -j` 的 `description` 验证两处 → 把消息键记进消息状态目录 → 任一步失败都恢复备份并报 `BIND_FAILED`。
+`hyprscope control install-bind` 在 `~/.config/hypr/hyprland.lua` 追加带标记的块，里面有三处 `hl.bind(...)`。兜底 bind 的参数是 `hl.dsp.exec_cmd("<绝对路径 node> <绝对路径 bin/hyprscope.ts> control panic --source shortcut")`，并带 `description = "hyprscope failsafe: revoke desktop control"`。桌面消息 bind（默认 `SUPER + ALT + M`，可用 `--message-key` 改）运行 `hyprscope message open`，带 `description = "hyprscope message: open the desktop composer"`。桌面标注 bind（默认 `SUPER + ALT + A`，可用 `--annotate-key` 改）运行 `hyprscope message annotate`，带 `description = "hyprscope: desktop annotate"`。安装流程：先检查三个键互不相同且都没被占用 → 备份配置 → 写块 → `hyprctl reload` → 用 `hyprctl binds -j` 的 `description` 验证三处 → 把消息键和标注键记进消息状态目录（`shortcut.txt`、`annotate-shortcut.txt`）→ 任一步失败都恢复备份与两份快捷键记录、删掉生成的 Lua 文件，并报 `BIND_FAILED`。
 
 绑定的键名要写成 Hyprland 的拼写（`Escape` 而不是 `ESC`）；`hl.bind` 在 0.57 里记录的 `arg` 是内部索引而不是命令字符串，所以验证只能看 `description`。
 
@@ -250,7 +250,7 @@ CUA 的 `click` / `typeText` 等方法仍然没有实现，`getCapabilities().ac
 
 ## 9. 计划执行（能力声明）
 
-`hyprscope` 仍然只读。改变桌面状态的唯一命令是 `hyprscope control run <plan.json | ->`：它必须持有 §8 的一份绑定了提交计划（`planBound: true`）的租约。`hyprscope control install-bind` 只写 Hyprland 配置文件，不改变桌面状态；`hyprscope message` 面只画浮层、写消息文件，同样不是控制路径。
+`hyprscope` 仍然只读。改变桌面状态的唯一命令是 `hyprscope control run <plan.json | ->`：它必须持有 §8 的一份绑定了提交计划（`planBound: true`）的租约。`hyprscope control install-bind` 只写 Hyprland 配置文件，不改变桌面状态；`hyprscope message` 面只画浮层、写消息与标注会话文件，同样不是控制路径。
 
 计划执行、干扰询问、恢复模型和 fault 记录见 `docs/PLAN.md`；换机器、换版本之后这些能力还成不成立，见 [COMPATIBILITY.md](/docs/COMPATIBILITY.zh.md)（能力基线，已实现并在运行时生效）。
 
@@ -281,4 +281,90 @@ Lua 表达式由执行器按白名单模板拼接，变量先过格式校验（�
 
 `hyprscope message` 既不是观察也不是控制：它负责提示条/输入浮层，以及运行中的 DSH Host 读取的那些文件。它不拿租约、不改桌面状态，也不贡献任何观察字段。
 
-`open`（`--json`）返回 `{ command: "open", dir, overlay: { pid, log }, request: { nonce, at }, dsh: "available" | "unavailable" }`；`overlay` 返回 `{ command: "overlay", dir, overlay }`；`stop` 返回 `{ command: "stop", dir }`。`--lang zh|en` 选择这条命令启动的浮层语言（默认 `zh`，或 `HYPRSCOPE_LANG`）。文件在 `$XDG_STATE_HOME/hyprscope/message`（或 `HYPRSCOPE_MESSAGE_DIR`）：Host 写 `status.json`、`ack.json`、`last-session.json` 和 `overlay.log`；CLI 写 `open.json`、`quit.json` 和 `shortcut.txt`；浮层把每条消息写成 `outbox/` 里的一份 JSON 文档。浮层是用 `-n` 启动的 Quickshell 进程，重复调用也只保留一个实例；没有 compositor 是 `NO_SESSION`，没有 Quickshell 是 `OVERLAY_FAILED`。插件那一半和注入消息的形状见 [docs/DSH-PLUGIN.zh.md](/docs/DSH-PLUGIN.zh.md)。
+`open`（`--json`）返回 `{ command: "open", dir, overlay: { pid, log }, request: { nonce, at }, dsh: "available" | "unavailable" }`；`annotate` 返回同样的形状，`command: "annotate"`，`request.mode: "annotate"`；`overlay` 返回 `{ command: "overlay", dir, overlay }`；`stop` 返回 `{ command: "stop", dir }`。`--lang zh|en` 选择这条命令启动的浮层语言（默认 `zh`，或 `HYPRSCOPE_LANG`）。文件在 `$XDG_STATE_HOME/hyprscope/message`（或 `HYPRSCOPE_MESSAGE_DIR`）：Host 写 `status.json`、`ack.json`、`last-session.json` 和 `overlay.log`；CLI 写 `open.json` 和 `quit.json`；`hyprscope control install-bind` 把消息键和标注键记进 `shortcut.txt` 与 `annotate-shortcut.txt`；浮层把每条消息写成 `outbox/` 里的一份 JSON 文档。浮层是用 `-n` 启动的 Quickshell 进程，重复调用也只保留一个实例；没有 compositor 是 `NO_SESSION`，没有 Quickshell 是 `OVERLAY_FAILED`。标注请求有自己的一套会话文件，见 §11。插件那一半和注入消息的形状见 [docs/DSH-PLUGIN.zh.md](/docs/DSH-PLUGIN.zh.md)。
+
+## 11. 桌面标注会话（`hyprscope message annotate`）
+
+`hyprscope message annotate` 向运行中的 DSH Host 请求一次桌面标注会话：冻结截图、手绘形状、按住说话的语音，以及一张简短的审查卡。CLI 启动与输入框相同的单实例 Quickshell 浮层，并写一份带 `mode: "annotate"` 的 `open.json` 请求；不带 `mode` 的请求仍然是旧的输入框请求。会话归插件所有：它通过只读 CLI 截屏、录麦克风、逐段转写，最后注入一条用户消息。CLI 不写会话文件、不拿租约；标注浮层也不改变桌面状态。
+
+### 11.1 会话目录与文件
+
+插件创建 `<messageDir>/annotate/<sessionId>/`，其中 `messageDir` 是桌面消息目录（`$XDG_STATE_HOME/hyprscope/message`，可用 `HYPRSCOPE_MESSAGE_DIR` 覆盖）。`sessionId` 是触发时刻的紧凑 UTC 串加四位随机十六进制，例如 `20261119T162512345Z-a1b2`。
+
+| 文件 | 写入方 | 用途 |
+|---|---|---|
+| `session.json` | 插件 | 会话记录：`version`、`sessionId`、`mode: "annotate"`、`startedAt`、`audioStartedAt`、`state`（`ready` 表示浮层可以开始，之后是 `sent` 或 `cancelled`）、`language`、`capture`、`context`、`error` |
+| `capture.png` | 插件 | 被截监视器的干净截图；同一路径也在 `session.json.capture.path` 里 |
+| `audio.pcm` | 插件 | 原始麦克风录音：16 kHz、单声道、有符号 16 位小端，每毫秒 32 字节 |
+| `voice-events.json` | 浮层 | 按住说话的语音段，带绝对起止时间和可选的 `anchor` |
+| `voice/<id>.json` | 插件 | 单段转写：`id`、`text`、`seconds`、`error` 和可选的 `phrases[]` |
+| `annotations.json` | 浮层 | 标注几何与评论，每次变化都重写 |
+| `send.json` | 浮层 | 最终提交：`overallNote`、`items[]` 和 `segments[]` |
+| `ack.json` | 插件 | 注入回执：`ok`、`message`、`sessionId` 和 `at` |
+| `cancel.json` | 浮层 | `{ version: 1, at }`；可选，用户取消时写入 |
+| `error.json` | 插件 | `{ version: 1, message, at }`；可选，会话无法继续时写入 |
+
+`active.json` 放在 `<messageDir>/annotate/active.json`，不在会话目录里：它是浮层加载时轮询的入口，带 `{ version, sessionId, dir, startedAt, audioStartedAt, state }`。会话结束时插件把它删掉，所以残留的入口不会重新打开一个崩掉的会话。
+
+除 `voice/<id>.json` 外，每份文档都带 `version: 1`；版本或形状校验不过的文档，插件和浮层都当作不存在。
+
+### 11.2 时间基准
+
+一个会话只有一个基准：`startedAt`，也就是触发那一刻的绝对 epoch 毫秒。`annotations.json`、`voice-events.json`、`voice/<id>.json` 和 `send.json` 里的每个 `at`、`atStart`、`atEnd` 都是同一台机器时钟给出的绝对 epoch 毫秒；卡片展示 `t = at - startedAt`。磁盘上不写相对时间戳，所以浮层、插件和 CLI 不会各走一套钟。
+
+`audioStartedAt` 是第一个 PCM 采样的绝对时刻，录音器起不来时为 `null`。切音频时插件按录音起点换算偏移（`at - audioStartedAt`）；16 kHz 单声道 s16le 正好每毫秒 32 字节，所以字节偏移 = 毫秒 × 32。每次切分都会夹到实际存在的字节范围内。
+
+有两份文档保留旧形状：`open.json.at` 是 ISO-8601 字符串，桌面消息的 `ack.json.at` 也是 ISO-8601 字符串。标注 `ack.json.at` 是 epoch 毫秒，因为标注文档都用同一个时钟。
+
+### 11.3 图像、屏幕坐标与归一化
+
+`session.json.capture` 描述干净截图：`path`（PNG 绝对路径）、`width`/`height`（图像物理像素）、`layoutRect`（Hyprland 全局布局坐标下的 `[x, y, width, height]`）、`monitor`、`scale`、`transform` 和 `sha256`。插件用只读的 `screenshot --monitor` 截取指针所在监视器（取不到时用聚焦的监视器）。
+
+PNG 上从不作画：形状和评论只作为元数据存在。`annotations[].from` 和 `to` 是 PNG 自身像素坐标，原点在图像左上角。浮层显示时按 `scale` 归一化（除以 `scale`，图像按 `width / scale` × `height / scale` 绘制），写文件时再换算回去。因此屏幕点 = `layoutRect` 原点 + 图像坐标 / `scale`；意图卡两种形式都会打印。`windowId` 是用这个全局点对 `context.windows[].rect`（全局布局坐标）做命中测试得到的。
+
+`session.json.context` 带 `cursor`（全局布局点或 null）、`focusedWindow`（窗口地址或 null）、`windows[]`（与截图相交的窗口，最多 24 个，按 z 序，越靠后越在上）和 `monitors[]`。窗口记录是 `{ id, class, title, pid, rect, workspace, monitor, focused, floating }`；`id` 是 Hyprland 地址，标题和 class 只是可变元数据，不是标识。
+
+### 11.4 标注记录
+
+`annotations.json.items[]` 每个形状一条记录：`id`、`index`（从 1 开始的显示编号，列表重排时重新编号）、`shape`（`rect`、`ellipse` 或 `arrow`）、`from`、`to`、`atStart`、`atEnd`、`comment`，以及命中测试得到的可选 `windowId`。评论留在文件和卡片里，不会烧进图片。浮层每次变化都原子重写这份文档，所以崩溃不会留下半份 JSON。
+
+### 11.5 语音段与 VAD 短语
+
+`voice-events.json.segments[]` 每段按住说话一条记录：`id`（`v1`、`v2`、……）、`atStart`、`atEnd`，以及可选的 `anchor`（`{ x, y, windowId?, annotationId? }`），也就是按下按键那一刻的指针位置和选中或正在画的标注。开始录音时浮层先写一段（结束等于开始），停止时再重写。
+
+插件为整个会话录原始 PCM，然后切出每一段，在段内跑帧能量 VAD：20 ms 一帧，连续 300 ms 静音结束一个短语，有声部分不足 200 ms 的短语丢弃，每个短语两侧各补 200 ms（相邻短语劈开共享的静音间隙，而不是重叠）。每个保留下来的短语单独转写；`voice/<id>.json` 存该段拼接后的 `text`、`seconds`、`error`，以及绝对时间的 `phrases[]`，每项是 `{ atStart, atEnd, text }`。
+
+配对粒度是短语，不是整段按住说话：一段可以切出多个短语，分别绑定不同标注。DSH 的 `speechToText` 服务缺失或转写失败时，文件带 `error`、`text` 为空；浮层显示失败，用户可以在审查卡里直接输入文字。转写失败不会阻塞提交。
+
+### 11.6 绑定与置信度
+
+插件把短语和标注配对（`linkVoiceToAnnotations`），每条配对形如 `{ annotationIds, voiceIds, confidence, source, ambiguous }`：
+
+| 规则 | 条件 | 置信度 | `source` |
+|---|---|---|---|
+| 1 | 唯一一个重叠标注覆盖较短区间的 60% | 0.9 | `overlap` |
+| 2 | 多个标注重叠；取重叠最大者，并标记为有歧义 | 0.6 | `overlap` |
+| 3 | 没有可用的重叠，但该段的 `anchor.annotationId` 指向已存在的标注 | 0.8 | `anchor` |
+| 4 | 否则，取短语结束后 2 秒内开始且最近的标注 | 0.5 | `sequence` |
+| 5 | 都不匹配 | — | 不绑定；该短语按全局备注处理 |
+
+低于 60% 的部分重叠不算可靠的时间匹配，会落到规则 3 和 4。多个短语可以绑定同一个标注，并保留时间顺序。文字 `comment` 和绑定上的语音都会保留，互不覆盖。审查卡里的改绑是权威的：显式写出的 `send.json.segments[].annotationId` 会以置信度 1、来源 `manual` 替换该段所有短语的自动配对；写 `null` 则去掉配对，把该段当作全局备注。
+
+### 11.7 提交、回执与降级
+
+提交时浮层写 `send.json`，带 `version`、`sessionId`、`at`（epoch 毫秒）、`overallNote`、最终的 `items[]` 和 `segments[]`。每段的 `text` 是用户最终的文字：只有一个 VAD 短语的段，它会替换转写；转写失败的段会变成一条手打短语；有多个短语的段仍使用 `voice/<id>.json` 里的逐短语文本，因为那才是配对粒度。插件最多等 6 秒转写队列，应用提交的文字和绑定，组装意图卡，再通过 DSH Host 注入一条 prompt。
+
+成功时写 `ack.json`：`ok: true`、收到 prompt 的 DSH `sessionId`、`message: null`（图片没能附上时是 `"sent without the screenshot"`）；浮层 1.5 秒后关闭。失败时写 `ok: false` 和错误文本；浮层显示错误并保留标注与转写，用户可以重试或返回。`error.json` 是不可重试的路径——会话没能准备好——浮层只提供关闭。
+
+降级都是局部的，会话仍然可用：
+
+- 没有 Wayland 会话或没有 Quickshell：`hyprscope message annotate` 以 `NO_SESSION` 或 `OVERLAY_FAILED` 失败，不写请求。
+- DSH 不在运行（心跳过期）：命令仍启动浮层并报告 `dsh: "unavailable"`；浮层提示 DSH 未运行，不开会话。
+- `parec` 和 `arecord` 都没有：`audioStartedAt` 为 `null`，每段转写都带错误，会话以文字评论继续。
+- 没有 DSH `speechToText` 服务或转写失败：走同一套 `voice/<id>.json` 错误路径；不阻塞发送。
+- 截图超过 8 MiB 或读不出来：prompt 只带文字，卡片里注明截图未附。
+- 用户取消（`cancel.json`）、浮层崩溃或收到退出请求：插件停录音、清理子进程并删掉 `active.json`；不留下麦克风占用，也不注入任何 prompt。
+
+### 11.8 浮层状态
+
+浮层按 `loading → annotating → review → sending → sent | error | cancelled` 迁移。`loading` 阶段轮询 `active.json` 和 `session.json`，DSH 5 秒内没准备好就失败。`annotating` 显示冻结图、形状工具条、编号、按住说话提示和可选的评论编辑框；Space 开始和停止按住说话，Enter 进入 `review`，Esc 弹出取消确认。`review` 里卡片列出标注和转写，可以改文字、改绑某一段；Enter 提交，Esc 回到 `annotating`。`sending` 轮询 `ack.json` 并在 20 秒后超时；`sent` 在收到回执 1.5 秒后关闭，任何失败都落到 `error`。浮层在 `loading` 阶段隐藏，避免插件截的冻结图里出现浮层；只有可见时才独占键盘。

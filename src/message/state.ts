@@ -47,10 +47,21 @@ export interface MessageStatus {
   error: string | null
 }
 
-/** One composer request; the nonce distinguishes two requests. */
+/** Overlay a message-open request asks for. Absent means `composer`. */
+export type OpenMode = 'composer' | 'annotate'
+
+/** One overlay-open request; the nonce distinguishes two requests. */
 export interface OpenRequest {
   nonce: string
   at: string
+  /** Requested overlay mode; an old request without it means `composer`. */
+  mode?: OpenMode
+}
+
+/** Options for {@link writeOpenRequest}. */
+export interface OpenRequestOptions {
+  /** Overlay mode to request; omitted keeps the legacy composer request. */
+  mode?: OpenMode
 }
 
 /** One message composed by the overlay. */
@@ -190,12 +201,18 @@ function newNonce(): string {
 }
 
 /**
- * Ask the overlay to open the composer.
+ * Ask the overlay to open. Without an explicit mode this writes the legacy
+ * composer request, so old callers keep the exact file shape they had.
  * @param paths Message paths; the directory must exist.
+ * @param options Requested overlay mode.
  * @returns The request that was written.
  */
-export async function writeOpenRequest(paths: MessagePaths): Promise<OpenRequest> {
+export async function writeOpenRequest(
+  paths: MessagePaths,
+  options: OpenRequestOptions = {},
+): Promise<OpenRequest> {
   const request: OpenRequest = { nonce: newNonce(), at: new Date().toISOString() }
+  if (options.mode !== undefined) request.mode = options.mode
   await writeJsonAtomic(paths.openFile, request)
   return request
 }

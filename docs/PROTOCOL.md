@@ -240,7 +240,7 @@ The heartbeat `heartbeat.json` is refreshed every 500ms by the requester/holder;
 
 ### Failsafe shortcut
 
-`hyprscope control install-bind` appends a marked block with two `hl.bind(...)` calls to `~/.config/hypr/hyprland.lua`. The failsafe bind's argument is `hl.dsp.exec_cmd("<absolute node> <absolute bin/hyprscope.ts> control panic --source shortcut")`, plus `description = "hyprscope failsafe: revoke desktop control"`. The desktop-message bind (default `SUPER + ALT + M`, `--message-key` overrides it) runs `hyprscope message open` and carries `description = "hyprscope message: open the desktop composer"`. The installation flow: check neither key is taken → back up the configuration → write the block → `hyprctl reload` → verify both descriptions in `hyprctl binds -j` → record the message key in the message state directory → on failure restore the backup and report `BIND_FAILED`.
+`hyprscope control install-bind` appends a marked block with three `hl.bind(...)` calls to `~/.config/hypr/hyprland.lua`. The failsafe bind's argument is `hl.dsp.exec_cmd("<absolute node> <absolute bin/hyprscope.ts> control panic --source shortcut")`, plus `description = "hyprscope failsafe: revoke desktop control"`. The desktop-message bind (default `SUPER + ALT + M`, `--message-key` overrides it) runs `hyprscope message open` and carries `description = "hyprscope message: open the desktop composer"`. The desktop-annotate bind (default `SUPER + ALT + A`, `--annotate-key` overrides it) runs `hyprscope message annotate` and carries `description = "hyprscope: desktop annotate"`. The installation flow: check the three keys are distinct and none is taken → back up the configuration → write the block → `hyprctl reload` → verify all three descriptions in `hyprctl binds -j` → record the message and annotation keys in the message state directory (`shortcut.txt`, `annotate-shortcut.txt`) → on failure restore the backup and both shortcut records, remove the generated Lua file and report `BIND_FAILED`.
 
 Write the key name in Hyprland's spelling (`Escape`, not `ESC`); in 0.57 `hl.bind` records the internal index rather than the command string in `arg`, so verification can only look at `description`.
 
@@ -250,7 +250,7 @@ CUA's `click` / `typeText` and other methods are still unimplemented, and `getCa
 
 ## 9. Plan execution (capability declaration)
 
-`hyprscope` remains read-only. The only command that changes desktop state is `hyprscope control run <plan.json | ->`: it must hold a lease from §8 that is bound to the submitted plan (`planBound: true`). `hyprscope control install-bind` only writes the Hyprland configuration file and does not change desktop state, and the `hyprscope message` surface only paints an overlay and writes message files, so neither is a control path.
+`hyprscope` remains read-only. The only command that changes desktop state is `hyprscope control run <plan.json | ->`: it must hold a lease from §8 that is bound to the submitted plan (`planBound: true`). `hyprscope control install-bind` only writes the Hyprland configuration file and does not change desktop state, and the `hyprscope message` surface only paints overlays and writes message and annotation session files, so neither is a control path.
 
 Plan execution, interference prompts, the recovery model and fault records are in `docs/PLAN.md`; whether these capabilities still hold after switching machines or versions is in [COMPATIBILITY.md](/docs/COMPATIBILITY.md) (the capability baseline, implemented and gated at run time).
 
@@ -281,4 +281,90 @@ The plan record (`out/runs/<runId>/`) is not part of the observation contract; i
 
 `hyprscope message` is neither observation nor control: it owns the hint/composer overlay and the files a running DSH Host reads. It takes no lease, changes no desktop state and contributes no observation fields.
 
-`open` (`--json`) returns `{ command: "open", dir, overlay: { pid, log }, request: { nonce, at }, dsh: "available" | "unavailable" }`; `overlay` returns `{ command: "overlay", dir, overlay }`; `stop` returns `{ command: "stop", dir }`. `--lang zh|en` selects the language of the overlay this command starts (default `zh`, or `HYPRSCOPE_LANG`). Files live in `$XDG_STATE_HOME/hyprscope/message` (or `HYPRSCOPE_MESSAGE_DIR`): the Host writes `status.json`, `ack.json`, `last-session.json` and `overlay.log`; the CLI writes `open.json`, `quit.json` and `shortcut.txt`; and the overlay writes one JSON document per message into `outbox/`. The overlay is a Quickshell process started with `-n`, so repeated calls keep one instance; a missing compositor is `NO_SESSION` and a missing Quickshell is `OVERLAY_FAILED`. The DSH plugin half and the injected message shape are in [docs/DSH-PLUGIN.md](/docs/DSH-PLUGIN.md).
+`open` (`--json`) returns `{ command: "open", dir, overlay: { pid, log }, request: { nonce, at }, dsh: "available" | "unavailable" }`; `annotate` returns the same shape with `command: "annotate"` and `request.mode: "annotate"`; `overlay` returns `{ command: "overlay", dir, overlay }`; `stop` returns `{ command: "stop", dir }`. `--lang zh|en` selects the language of the overlay this command starts (default `zh`, or `HYPRSCOPE_LANG`). Files live in `$XDG_STATE_HOME/hyprscope/message` (or `HYPRSCOPE_MESSAGE_DIR`): the Host writes `status.json`, `ack.json`, `last-session.json` and `overlay.log`; the CLI writes `open.json` and `quit.json`; `hyprscope control install-bind` records the message and annotation keys in `shortcut.txt` and `annotate-shortcut.txt`; and the overlay writes one JSON document per message into `outbox/`. The overlay is a Quickshell process started with `-n`, so repeated calls keep one instance; a missing compositor is `NO_SESSION` and a missing Quickshell is `OVERLAY_FAILED`. An annotate request has its own session files, documented in §11. The DSH plugin half and the injected message shape are in [docs/DSH-PLUGIN.md](/docs/DSH-PLUGIN.md).
+
+## 11. Desktop annotation session (`hyprscope message annotate`)
+
+`hyprscope message annotate` asks the running DSH Host for one desktop annotation session: a frozen screenshot, freehand shapes, push-to-talk speech and a short review card. The CLI starts the same single-instance Quickshell overlay as the composer and writes one `open.json` request with `mode: "annotate"`; a request without `mode` is still the legacy composer request. The plugin owns the session: it captures the screen through the read-only CLI, records the microphone, transcribes each push-to-talk segment and injects one user message. The CLI writes no session file and takes no lease; the annotation surface changes no desktop state.
+
+### 11.1 Session directory and files
+
+The plugin creates `<messageDir>/annotate/<sessionId>/`, where `messageDir` is the desktop-message directory (`$XDG_STATE_HOME/hyprscope/message`, overridden by `HYPRSCOPE_MESSAGE_DIR`). `sessionId` is the trigger instant as a compact UTC stamp plus four random hex digits, for example `20261119T162512345Z-a1b2`.
+
+| File | Writer | Purpose |
+|---|---|---|
+| `session.json` | plugin | Session record: `version`, `sessionId`, `mode: "annotate"`, `startedAt`, `audioStartedAt`, `state` (`ready` when the overlay may start, then `sent` or `cancelled`), `language`, `capture`, `context`, `error` |
+| `capture.png` | plugin | Clean screenshot of the captured monitor; the same path is in `session.json.capture.path` |
+| `audio.pcm` | plugin | Raw microphone recording: 16 kHz, mono, signed 16-bit little-endian, 32 bytes per millisecond |
+| `voice-events.json` | overlay | Push-to-talk segments with absolute start and end and an optional `anchor` |
+| `voice/<id>.json` | plugin | One segment's transcript: `id`, `text`, `seconds`, `error` and optional `phrases[]` |
+| `annotations.json` | overlay | Annotation geometry and comments, rewritten on every change |
+| `send.json` | overlay | Final submission: `overallNote`, `items[]` and `segments[]` |
+| `ack.json` | plugin | Injection receipt: `ok`, `message`, `sessionId` and `at` |
+| `cancel.json` | overlay | `{ version: 1, at }`; optional, written when the user cancels |
+| `error.json` | plugin | `{ version: 1, message, at }`; optional, written when the session cannot continue |
+
+`active.json` lives at `<messageDir>/annotate/active.json`, not inside a session directory: it is the entry point the overlay polls while loading, and it carries `{ version, sessionId, dir, startedAt, audioStartedAt, state }`. The plugin removes it when the session ends, so a leftover entry cannot reopen a crashed session.
+
+Every document except `voice/<id>.json` carries `version: 1`; the plugin and the overlay ignore a document whose version or shape does not validate.
+
+### 11.2 Time base
+
+A session has one origin: `startedAt`, the absolute epoch-millisecond instant of the trigger. Every `at`, `atStart` and `atEnd` in `annotations.json`, `voice-events.json`, `voice/<id>.json` and `send.json` is an absolute epoch-millisecond instant from the same machine clock; the card displays `t = at - startedAt`. No relative timestamp is written to disk, so the overlay, the plugin and the CLI cannot drift apart.
+
+`audioStartedAt` is the absolute instant of the first PCM sample and is `null` when no recorder could start. To cut audio, the plugin computes the offset from the recording start (`at - audioStartedAt`); 16 kHz mono s16le is exactly 32 bytes per millisecond, so byte offset = milliseconds × 32. Every cut is clamped to the bytes that exist.
+
+Two documents keep their older shapes: `open.json.at` is an ISO-8601 string, and the desktop-message `ack.json.at` is also an ISO-8601 string. The annotation `ack.json.at` is epoch milliseconds, because every annotation document uses one clock.
+
+### 11.3 Images, screen coordinates and normalization
+
+`session.json.capture` describes the clean screenshot: `path` (absolute PNG), `width`/`height` in image (physical) pixels, `layoutRect` (`[x, y, width, height]` in Hyprland global layout coordinates), `monitor`, `scale`, `transform` and `sha256`. The plugin captures the monitor under the pointer (falling back to the focused monitor) with the read-only `screenshot --monitor` command.
+
+The PNG is never drawn on: shapes and comments exist only as metadata. `annotations[].from` and `to` are coordinates in the PNG's own pixels, with the origin at the image's top-left. The overlay normalizes them for display by dividing by `scale` (the image is drawn at `width / scale` by `height / scale`) and converts back when writing the file. A screen point is therefore the `layoutRect` origin plus the image coordinate divided by `scale`; the intent card prints both forms. A `windowId` is resolved by hit-testing that global point against `context.windows[].rect`, which uses global layout coordinates.
+
+`session.json.context` carries `cursor` (a global layout point or null), `focusedWindow` (an address or null), `windows[]` (at most 24 windows that intersect the capture, in z order, later entries on top) and `monitors[]`. A window record is `{ id, class, title, pid, rect, workspace, monitor, focused, floating }`; `id` is the Hyprland address, while titles and classes are mutable metadata, never identifiers.
+
+### 11.4 Annotation records
+
+`annotations.json.items[]` holds one record per shape: `id`, `index` (the one-based display number, reassigned when the list is reordered), `shape` (`rect`, `ellipse` or `arrow`), `from`, `to`, `atStart`, `atEnd`, `comment` and an optional `windowId` from the hit test. Comments stay in the file and on the card; they are not burned into the picture. The overlay rewrites the document atomically on every change, so a crash cannot leave half a JSON document behind.
+
+### 11.5 Voice segments and VAD phrases
+
+`voice-events.json.segments[]` holds one record per push-to-talk segment: `id` (`v1`, `v2`, …), `atStart`, `atEnd` and an optional `anchor` (`{ x, y, windowId?, annotationId? }`), which is the pointer position and the selected or in-progress annotation at the moment the key was pressed. The overlay writes the segment when recording starts (end equal to start) and rewrites it when recording stops.
+
+The plugin records raw PCM for the whole session, then cuts each segment and runs a frame-energy VAD on it: 20 ms frames, a 300 ms silent run ends a phrase, phrases with less than 200 ms of voiced audio are dropped, and each phrase is padded by 200 ms on both sides (neighbouring phrases split a shared gap instead of overlapping). Every surviving phrase is transcribed separately; `voice/<id>.json` stores the segment's concatenated `text`, its `seconds`, an `error` and `phrases[]` with `{ atStart, atEnd, text }` in absolute time.
+
+The pairing granularity is the phrase, not the whole segment: one push-to-talk segment can produce several phrases and each can bind a different annotation. When the DSH `speechToText` service is missing or a transcription fails, the file carries `error` and empty `text`; the overlay shows the failure and the user can type the words in the review card instead. A failed transcript never blocks the submission.
+
+### 11.6 Links and confidence
+
+The plugin pairs phrases with annotations (`linkVoiceToAnnotations`) and reports each pairing as `{ annotationIds, voiceIds, confidence, source, ambiguous }`:
+
+| Rule | Condition | Confidence | `source` |
+|---|---|---|---|
+| 1 | Exactly one overlapping annotation reaches 60% of the shorter interval | 0.9 | `overlap` |
+| 2 | Several annotations overlap; the largest overlap wins and the link is flagged ambiguous | 0.6 | `overlap` |
+| 3 | No usable overlap, but the segment's `anchor.annotationId` names an existing annotation | 0.8 | `anchor` |
+| 4 | Otherwise, the nearest annotation that starts within 2 seconds after the phrase ends | 0.5 | `sequence` |
+| 5 | Nothing matches | — | no link; the phrase is a global note |
+
+A partial overlap below 60% is not a confident temporal match and falls through to rules 3 and 4. Several phrases may bind the same annotation and keep their time order. A text `comment` and a linked phrase are both preserved; neither replaces the other. A re-binding chosen in the review card is authoritative: an explicit `send.json.segments[].annotationId` replaces the automatic pairing for every phrase of that segment with confidence 1 and source `manual`, and `null` removes the pairing so the segment is a global note.
+
+### 11.7 Submission, receipt and degradation
+
+On submit the overlay writes `send.json` with `version`, `sessionId`, `at` (epoch milliseconds), `overallNote`, the final `items[]` and `segments[]`. Each segment's `text` is the user's final text: for a segment with one VAD phrase it replaces the transcript, and a segment whose transcription failed becomes one typed phrase; a segment with several phrases keeps the per-phrase texts from `voice/<id>.json`, because that is the pairing granularity. The plugin waits for the transcription queue (6 seconds at most), applies the submitted text and bindings, builds the intent card and injects one prompt through the DSH Host.
+
+On success it writes `ack.json` with `ok: true`, the DSH `sessionId` that received the prompt and `message: null` (or `"sent without the screenshot"` when the PNG could not be attached); the overlay closes 1.5 seconds later. On failure it writes `ok: false` with the error text; the overlay shows the error and keeps the annotations and transcripts so the user can retry or go back. `error.json` is the non-retryable path — the session could not be prepared — and the overlay then offers only to close.
+
+Degradations are local and keep the session usable:
+
+- No Wayland session or no Quickshell: `hyprscope message annotate` fails with `NO_SESSION` or `OVERLAY_FAILED` and writes no request.
+- DSH not running (stale heartbeat): the command still starts the overlay and reports `dsh: "unavailable"`; the overlay shows that DSH is not running instead of opening a session.
+- No `parec` and no `arecord`: `audioStartedAt` is `null`, every transcript carries an error, and the session continues with typed comments.
+- No DSH `speechToText` service, or a failed transcription: the same `voice/<id>.json` error path; sending is not blocked.
+- Screenshot over 8 MiB or unreadable: the prompt travels as text only and the card states that the screenshot is not attached.
+- User cancel (`cancel.json`), overlay death or a quit request: the plugin stops the recorder, cleans the child processes and removes `active.json`; no microphone is left open and no prompt is injected.
+
+### 11.8 Overlay states
+
+The surface moves through `loading → annotating → review → sending → sent | error | cancelled`. In `loading` it polls `active.json` and `session.json` and fails after 5 seconds if DSH never prepared the session. In `annotating` it shows the frozen image, the shape toolbar, the numbering, the push-to-talk badge and the optional comment editor; Space starts and stops push-to-talk, Enter moves to `review`, and Esc asks for a cancel confirmation. In `review` the card lists the annotations and transcripts, allows editing the text and re-binding a segment, and Enter submits while Esc returns to `annotating`. In `sending` it polls `ack.json` and times out after 20 seconds; `sent` closes 1.5 seconds after the receipt, and every failure lands in `error`. The surface is hidden during `loading` so the plugin's frozen screenshot cannot contain the overlay, and it holds the keyboard exclusively only while visible.

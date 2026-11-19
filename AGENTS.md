@@ -6,9 +6,9 @@ hyprscope is one binary with three command groups. `bin/hyprscope.ts` is the onl
 |---|---|---|
 | `hyprscope <cmd>` | read-only observation, screenshots, events, `doctor` | any desktop mutation; statically importing lease/plan/control/inject/desktop-lifecycle code |
 | `hyprscope control <cmd>` | lease, plan validation and execution, injection, capability baseline, agent desktop | bypassing the lease, the plan binding or the dispatch allowlist |
-| `hyprscope message <cmd>` | the desktop hint/composer overlay, message state files, spawning the overlay through the CLI | statically importing lease/plan/control/inject/desktop-lifecycle code; calling `hyprctl`; moving, focusing or closing a window |
+| `hyprscope message <cmd>` | the desktop hint/composer/annotation overlays, message and annotate session files, spawning an overlay through the CLI | statically importing lease/plan/control/inject/desktop-lifecycle code; calling `hyprctl`; moving, focusing or closing a window; recording audio or capturing the screen outside the read-only CLI |
 
-The boundary is a gate, not a style: read-only and message code have no route into control code, and control always goes through the lease, the executor and the capability baseline. The message surface only paints a Quickshell overlay and writes files; it never takes a lease, changes desktop state or types into another window. Keep every gate when refactoring; do not turn the router into prefix matching. `bin/hyprlease.ts` stays deleted: if the old name is ever needed, it must be a shim that invokes `hyprscope control`, never a second implementation.
+The boundary is a gate, not a style: read-only and message code have no route into control code, and control always goes through the lease, the executor and the capability baseline. The message surface only paints a Quickshell overlay and writes session files; the DSH plugin owns capture, audio recording and prompt admission, and the overlay never takes a lease, changes desktop state or types into another window. Keep every gate when refactoring; do not turn the router into prefix matching. `bin/hyprlease.ts` stays deleted: if the old name is ever needed, it must be a shim that invokes `hyprscope control`, never a second implementation.
 
 ## Understanding the project
 

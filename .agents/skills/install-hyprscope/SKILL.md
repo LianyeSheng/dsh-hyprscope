@@ -68,6 +68,7 @@ Preflight proves install prerequisites, not control readiness. Quickshell and a 
 | Quickshell | Draws the consent card and lease banner | Control and baseline probe fail with `OVERLAY_FAILED` |
 | A Hyprland session | `doctor`, probe, baseline, control | Read-only `doctor` fails with `NO_SESSION` |
 | grim | Screenshots | Observation still works |
+| parec or arecord | Push-to-talk recording for the annotation surface | Annotation still works; speech becomes typed comments |
 | DSH | Optional plugin stage | Skip stage 6 |
 
 The practical Node floor is 22.18: `node -p "process.features.typescript"` must print `strip` (or `transform`), not `undefined`. The package's `engines` field says >=22, but running `.ts` without flags needs 22.18; CI verifies Node 24.10. A newer local Node works but is not covered by CI.
@@ -84,6 +85,8 @@ Only after the host agrees. Match the distribution, show the command, then run i
 | openSUSE | `sudo zypper install -y gcc gcc-c++ make pkg-config wayland-devel wayland-protocols-devel grim` |
 
 Quickshell is not packaged identically across distributions. Install it from the distribution or upstream, or point `HYPRSCOPE_QUICKSHELL` at an existing `quickshell`/`qs` binary. The CLI looks for `quickshell` by default, so if the system only provides `qs`, export `HYPRSCOPE_QUICKSHELL=qs` (or its absolute path). Without it, observation still works but consent cards cannot appear, so control is unavailable.
+
+The annotation surface records push-to-talk audio through `parec` (usually shipped with PipeWire's pulse tools) or `arecord` (alsa-utils). This skill installs neither and should not install an audio stack unasked; without either, an annotation session still works with typed comments. The voice path also needs a prepared DSH `speechToText` provider (SenseVoice in this checkout), which is stage 6's concern, not the system package table's.
 
 For Node and pnpm, prefer the user's version manager. If `pnpm --version` already matches 12.20.0, skip the bootstrap. If neither exists and the host agrees:
 
@@ -180,14 +183,14 @@ This shows `pending` (a draft from an earlier probe), `missingRequired`, `degrad
 
 ### Managed shortcuts (recommended)
 
-Install the `SUPER + ALT + ESC` hand-back and the `SUPER + ALT + M` desktop-message shortcut before probing so the baseline measures the final bind count; installing them afterwards changes the bind count and makes the baseline stale.
+Install the `SUPER + ALT + ESC` hand-back, the `SUPER + ALT + M` desktop-message shortcut and the `SUPER + ALT + A` annotation shortcut before probing so the baseline measures the final bind count; installing them afterwards changes the bind count and makes the baseline stale.
 
 ```sh
-node bin/hyprscope.ts control install-bind                              # failsafe + desktop message
-node bin/hyprscope.ts control install-bind --message-key "SUPER + ALT + D"
+node bin/hyprscope.ts control install-bind                              # failsafe + desktop message + annotate
+node bin/hyprscope.ts control install-bind --message-key "SUPER + ALT + D" --annotate-key "SUPER + ALT + N"
 ```
 
-This edits the user's Hyprland configuration (with a timestamped backup), adds a marked Lua block with both binds, verifies both descriptions, records the message key where the overlay reads it, and runs `hyprctl reload`; ask first. It applies only to the user's desktop and expects the Lua config provider. If the host declines or the configuration is not Lua, skip it: the baseline reports `safety.failsafe-bind` as degraded, and the TTL, `done`, and the banner button still end control. The desktop-message shortcut is optional: if the host only wants the failsafe, say that `--message-key` still installs both binds today, so the only way to omit it is to leave the whole installer out.
+This edits the user's Hyprland configuration (with a timestamped backup), adds a marked Lua block with three binds, verifies all three descriptions, records both keys where the overlay reads them (`shortcut.txt` and `annotate-shortcut.txt`), and runs `hyprctl reload`; ask first. It applies only to the user's desktop and expects the Lua config provider. If the host declines or the configuration is not Lua, skip it: the baseline reports `safety.failsafe-bind` as degraded, and the TTL, `done`, and the banner button still end control. All three shortcuts are installed together, so the only way to omit one is to leave the whole installer out; explain that before the host chooses. A failed install restores the configuration and both shortcut records and removes the generated Lua file.
 
 The message shortcut runs `hyprscope message open`. Test the command itself (it is read-only and takes no lease) once the overlay runtime is installed:
 
@@ -196,6 +199,14 @@ node bin/hyprscope.ts message open --json
 ```
 
 A result with `"dsh": "unavailable"` is expected while no `hyprscope` DSH Host is running; it still proves the overlay can start and the request file was written. `NO_SESSION` means this shell cannot reach the compositor, and `OVERLAY_FAILED` means Quickshell is missing.
+
+The annotation shortcut runs `hyprscope message annotate`. The same test applies:
+
+```sh
+node bin/hyprscope.ts message annotate --json
+```
+
+It reports `command: "annotate"` and writes a `mode: "annotate"` request; with no Host heartbeat it still starts the overlay and reports `dsh: "unavailable"`, and it writes no request when the compositor or Quickshell is missing. It proves the overlay and request path, not the live annotation session.
 
 Before probing, confirm Quickshell is available (stage 2). Without it the consent card cannot appear and the probe fails with `OVERLAY_FAILED`.
 
@@ -244,6 +255,8 @@ After installation the profile has six `hyprscope_*` tools. If they do not appea
 
 The same restart starts the desktop-message bridge when the profile exposes `sessionController` (the Web and Desktop bundles do) and `desktopMessage` is not disabled. To verify it after the restart, run `node bin/hyprscope.ts message open --json`: `"dsh": "available"` means the Host heartbeat is fresh and the composer request was written; the hint pill should be visible at the top-right with the key recorded by the installer. A headless profile has no hint because it has no `sessionController`, which is not a failure. If the overlay starts and then dies, the bridge notices on the next heartbeat and starts it again; check `$XDG_STATE_HOME/hyprscope/message/overlay.log` and `status.json` when it keeps failing. Do not leave the composer open while talking to the host; Esc closes it.
 
+The same restart also starts the annotation bridge unless the plugin sets `desktopAnnotate: false`. It needs the Host's `speechToText` service for voice: check the profile lists a prepared provider (SenseVoice in this checkout). Run `node bin/hyprscope.ts message annotate --json`; `"dsh": "available"` means the annotation request can reach the Host. Then press `SUPER + ALT + A` (or the recorded annotate key): the hint and composer hide, the frozen screen appears, drawing and holding Space work, and the review card shows the annotations and transcripts. Missing `speechToText` is not an install failure: the session still opens, the review card says transcription failed, and typed comments are sent. A session that never leaves the loading state usually means DSH is not running or the Host still has the pre-annotate bundle; restart DSH and compare `pluginVersion` with the checkout.
+
 If the plugin loads but every call fails naming `projectDir`, set `projectDir` in the profile's `hyprscope` row to this checkout instead of moving the checkout. Do not install DSH itself, and do not change the user's Hyprland configuration for the plugin.
 
 ### Capturing a consent card from an agent session
@@ -277,6 +290,8 @@ Built: wl-globals, wl-inject, wl-scratch, wl-capture | or what failed
 Tests: pnpm test <pass/fail/skip counts>
 Failsafe: <installed|skipped>
 Desktop message: <installed|"SUPER + ALT + M" recorded|skipped>
+Desktop annotate: <installed|"SUPER + ALT + A" recorded|skipped>
+Annotation speech: <speechToText prepared|missing (typed comments only)|not checked>
 Baseline: <none|usable|degraded|incomplete>, freshness <fresh|stale|unverified|n/a>, approved <time or "—">, missing <capabilities or none>
 DSH plugin: <not detected|already installed|installed|needs restart|not verified>
 Desktop message bridge: <hint visible|no sessionController|disabled by config|not verified>
@@ -301,6 +316,9 @@ Mark anything skipped as skipped. Never report "installed" for a stage that did 
 | New tools are absent after install | The profile needs a reload or restart | Reload the plugin or restart DSH, then re-check `hyprscope_observe` |
 | A plugin edit has no effect, or a new tool parameter is ignored | The Host still has the old bundle in memory; it does not watch `index.js` | Restart DSH, then compare `doctor` `pluginVersion` and `cliPath` with the checkout |
 | A tool error mentions `EROFS` or a read-only state directory | The Host's `XDG_STATE_HOME` is not writable | Point `XDG_STATE_HOME` at a writable directory and restart DSH; the accepted baseline lives in the real state home |
+| The hint shows no annotate key, or the annotation shortcut does nothing | The install predates the annotate bind, or `annotate-shortcut.txt` is missing, or the key is taken | Re-run `hyprscope control install-bind`; check `hyprctl binds -j` for the `hyprscope: desktop annotate` description. The overlay falls back to the default label, but the key only works when the bind exists |
+| The annotation review card says transcription failed | The profile has no prepared `speechToText` provider, or `parec`/`arecord` cannot start | Type the words in the review card; prepare the speech provider in DSH, and install a recorder for voice. The session is not blocked |
+| The annotation shortcut opens nothing, or the surface stays in loading | DSH is not running, the running Host still has the pre-annotate bundle, or `desktopAnnotate` is `false` | Start or restart DSH, compare `doctor` `pluginVersion` with the checkout, check the config; `hyprscope message annotate --json` reports whether the Host heartbeat is visible |
 | A card-showing tool call seems to hang | It is waiting for the host to answer the consent card | Intentional: capture the card with a background CLI job plus a timed screenshot, and never answer it for the host |
 
 For the design behind the baseline, read `docs/BASELINE.md` and `docs/COMPATIBILITY.md`; for the plugin's configuration keys, read `docs/DSH-PLUGIN.md`.

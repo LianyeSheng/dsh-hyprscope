@@ -7,7 +7,7 @@ import type { Io } from '../cli.ts'
 import { ensureMessageOverlay } from './overlay.ts'
 import {
   ensureMessageDirectory, messageDirectory, messagePaths, readStatus, statusFresh, writeOpenRequest,
-  writeQuitRequest, type MessagePaths,
+  writeQuitRequest, type MessagePaths, type OpenRequest,
 } from './state.ts'
 
 export const MESSAGE_USAGE = `hyprscope message — desktop message composer for a running DSH Host
@@ -16,6 +16,7 @@ Usage: hyprscope message <command> [options]
 
 Commands:
   open          Open the message composer on the desktop (the shortcut runs this)
+  annotate      Start the overlay for a desktop annotation session (screenshot, drawings, voice)
   overlay       Start the hint/composer overlay without opening the composer
   stop          Ask a running overlay to exit
 
@@ -25,8 +26,9 @@ Options:
   -h, --help             Show this help
 
 The composer writes a message that the running DSH Host injects into the most
-recently active session; the hint/composer overlay belongs to the DSH
-hyprscope plugin and is not a control surface.`
+recently active session; the annotate command asks the same Host for a screenshot-and-voice
+annotation session. The overlay belongs to the DSH hyprscope plugin and is not a
+control surface.`
 
 /** Parsed `hyprscope message` command line. */
 export interface MessageOptions {
@@ -76,13 +78,13 @@ function languageOf(options: MessageOptions, env: NodeJS.ProcessEnv): RenderLang
  * scripts that only read the ones they asked for.
  */
 export interface MessageCommandResult {
-  command: 'open' | 'overlay' | 'stop'
+  command: 'open' | 'annotate' | 'overlay' | 'stop'
   /** Message directory the command used. */
   dir: string
   /** Overlay facts for the commands that start it. */
   overlay?: { pid: number | null; log: string }
-  /** Composer request written by `open`. */
-  request?: { nonce: string; at: string }
+  /** Overlay-open request written by `open` or `annotate`. */
+  request?: OpenRequest
   /** Whether the DSH Host heartbeat looked live when the request was written. */
   dsh?: 'available' | 'unavailable'
 }
@@ -113,6 +115,7 @@ function render(result: MessageCommandResult): string {
   if (result.command === 'stop') return `desktop-message overlay asked to exit (${result.dir})`
   if (result.command === 'overlay') return `desktop-message overlay running (pid ${result.overlay?.pid ?? 'unknown'}, log ${result.overlay?.log ?? ''})`
   const state = result.dsh === 'available' ? 'DSH is running' : 'DSH is not running'
+  if (result.command === 'annotate') return `desktop annotation session requested (${state}; ${result.dir})`
   return `desktop-message composer requested (${state}; ${result.dir})`
 }
 
@@ -160,9 +163,9 @@ export async function main(
     io.stdout.write(MESSAGE_USAGE)
     return 0
   }
-  if (command !== 'open' && command !== 'overlay' && command !== 'stop') {
+  if (command !== 'open' && command !== 'annotate' && command !== 'overlay' && command !== 'stop') {
     return fail(io, new HyprscopeError(ErrorCode.USAGE,
-      `Unknown message command ${command}; expected open, overlay or stop`), options.json)
+      `Unknown message command ${command}; expected open, annotate, overlay or stop`), options.json)
   }
   try {
     const lang = languageOf(options, env)
@@ -186,7 +189,9 @@ export async function main(
     await rm(paths.quitFile, { force: true })
     const status = await readStatus(paths)
     const live = status !== null && status.alive && statusFresh(status)
-    const request = await writeOpenRequest(paths)
+    // The plugin consumes open.json and creates the annotate session itself;
+    // the CLI only writes the request after the overlay is up.
+    const request = await writeOpenRequest(paths, command === 'annotate' ? { mode: 'annotate' } : {})
     const result: MessageCommandResult = {
       command,
       dir: paths.dir,

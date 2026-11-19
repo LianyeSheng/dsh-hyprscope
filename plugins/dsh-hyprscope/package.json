@@ -1,6 +1,6 @@
 {
   "name": "@local/dsh-hyprscope",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "description": "Native, plug-and-play DSH plugin for hyprscope: Hyprland desktop observation and consent-gated control.",
@@ -14,6 +14,8 @@
   "files": [
     "index.js",
     "message.js",
+    "annotate.js",
+    "voice.js",
     "cordis.patch.yml",
     "locale/*.json",
     "icon.svg",

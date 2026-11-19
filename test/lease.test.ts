@@ -5,8 +5,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import {
-  parseKey, keyTaken, luaSource, configBlock, quoteShell, normalizedKey, panicCommand, messageCommand, installBind,
-  uninstallBind,
+  parseKey, keyTaken, luaSource, configBlock, quoteShell, normalizedKey, panicCommand, messageCommand,
+  annotateCommand, annotateShortcutPath, installBind, uninstallBind,
 } from '../src/lease/bind.ts'
 import { main, parseLeaseArgs } from '../src/lease/cli.ts'
 import {
@@ -589,6 +589,13 @@ test('parseLeaseArgs keeps the exposed agent workflow commands', () => {
   const panic = parseLeaseArgs(['panic', '--source', 'shortcut'])
   assert.equal(panic.command, 'panic')
   assert.equal(panic.options.source, 'shortcut')
+  const install = parseLeaseArgs([
+    'install-bind', '--key', 'SUPER + ALT + ESC', '--message-key', 'SUPER + ALT + M', '--annotate-key', 'SUPER + ALT + A',
+  ])
+  assert.equal(install.command, 'install-bind')
+  assert.equal(install.options.key, 'SUPER + ALT + ESC')
+  assert.equal(install.options.messageKey, 'SUPER + ALT + M')
+  assert.equal(install.options.annotateKey, 'SUPER + ALT + A')
 })
 
 test('control rejects request, done and __hold as unknown commands', async () => {
@@ -605,6 +612,8 @@ test('control help advertises only the exposed commands', async () => {
   assert.equal(await main(['--help'], { stdout, stderr: sink() }), 0)
   assert.match(stdout.text, /^  status\s/m)
   assert.match(stdout.text, /^  panic\s/m)
+  assert.match(stdout.text, /--annotate-key/)
+  assert.match(stdout.text, /desktop-annotate/)
   assert.doesNotMatch(stdout.text, /__hold/)
   assert.doesNotMatch(stdout.text, /^  request\s/m)
   assert.doesNotMatch(stdout.text, /^  done\s/m)
@@ -706,6 +715,7 @@ test('uninstallBind removes a legacy hyprlease block', async (t) => {
   const messageDir = join(stateDir, 'hyprscope', 'message')
   mkdirSync(messageDir, { recursive: true })
   writeFileSync(join(messageDir, 'shortcut.txt'), 'SUPER + ALT + M' + String.fromCharCode(10))
+  writeFileSync(join(messageDir, 'annotate-shortcut.txt'), 'SUPER + ALT + A' + String.fromCharCode(10))
   writeScript(binDir, 'hyprctl', '#!/bin/sh\nexit 0\n')
   const result = await uninstallBind({
     env: {
@@ -721,6 +731,7 @@ test('uninstallBind removes a legacy hyprlease block', async (t) => {
   assert.match(text, /after = true/)
   assert.equal(existsSync(join(configDir, 'hyprlease.lua')), false)
   assert.equal(existsSync(join(messageDir, 'shortcut.txt')), false)
+  assert.equal(existsSync(join(messageDir, 'annotate-shortcut.txt')), false)
   assert.ok(result.backupFile !== null && existsSync(result.backupFile))
 })
 test('messageCommand runs the desktop-message surface', () => {
@@ -729,90 +740,172 @@ test('messageCommand runs the desktop-message surface', () => {
   assert.doesNotMatch(command, /'control'/)
 })
 
-test('luaSource and configBlock register both managed binds', () => {
-  const lua = luaSource('SUPER + ALT + ESC', 'node panic', 'SUPER + ALT + M', 'node message')
-  assert.match(lua, /hl\.bind\("SUPER \+ ALT \+ ESC"/)
-  assert.match(lua, /hl\.bind\("SUPER \+ ALT \+ M"/)
-  assert.match(lua, /hyprscope message: open the desktop composer/)
-  const block = configBlock('SUPER + ALT + ESC', 'node panic', 'SUPER + ALT + M', 'node message')
-  assert.match(block, /hl\.bind\("SUPER \+ ALT \+ M"/)
-  assert.match(block, /hyprscope message: open the desktop composer/)
+test('annotateCommand runs the desktop-message surface in annotate mode', () => {
+  const command = annotateCommand({ HYPRSCOPE_NODE: '/usr/bin/node' })
+  assert.match(command, /bin\/hyprscope\.ts' 'message' 'annotate'/)
+  assert.doesNotMatch(command, /'control'/)
 })
 
-/** A fake hyprctl whose second binds query reports the managed binds. */
-function managedBindScript(): string {
-  return [
-    '#!/bin/sh',
-    'count_file="$(dirname "$0")/binds-count"',
-    'cmd="$2"',
-    'if [ "$cmd" = "binds" ]; then',
-    '  count=0',
-    '  [ -f "$count_file" ] && count=$(cat "$count_file")',
-    '  count=$((count + 1))',
-    '  printf "%s" "$count" > "$count_file"',
-    '  if [ "$count" -ge 2 ]; then',
-    '    printf "%s" "[{\\"description\\":\\"hyprscope failsafe: revoke desktop control\\"},{\\"description\\":\\"hyprscope message: open the desktop composer\\"}]"',
-    '  else',
-    '    printf "%s" "[]"',
-    '  fi',
-    '  exit 0',
-    'fi',
-    'if [ "$cmd" = "configerrors" ]; then printf "%s" "[]"; exit 0; fi',
-    'exit 0',
-    '',
-  ].join(String.fromCharCode(10))
+test('luaSource and configBlock register all three managed binds', () => {
+  const lua = luaSource(
+    'SUPER + ALT + ESC', 'node panic', 'SUPER + ALT + M', 'node message', 'SUPER + ALT + A', 'node annotate',
+  )
+  assert.match(lua, /hl\.bind\("SUPER \+ ALT \+ ESC"/)
+  assert.match(lua, /hl\.bind\("SUPER \+ ALT \+ M"/)
+  assert.match(lua, /hl\.bind\("SUPER \+ ALT \+ A"/)
+  assert.match(lua, /hyprscope message: open the desktop composer/)
+  assert.match(lua, /hyprscope: desktop annotate/)
+  const block = configBlock(
+    'SUPER + ALT + ESC', 'node panic', 'SUPER + ALT + M', 'node message', 'SUPER + ALT + A', 'node annotate',
+  )
+  assert.match(block, /hl\.bind\("SUPER \+ ALT \+ M"/)
+  assert.match(block, /hl\.bind\("SUPER \+ ALT \+ A"/)
+  assert.match(block, /hyprscope message: open the desktop composer/)
+  assert.match(block, /hyprscope: desktop annotate/)
+})
+
+/** Fake `hyprctl` used by the install tests: two `binds` reads around one reload. */
+const FAKE_HYPRCTL = [
+  '#!/bin/sh',
+  'count_file="$(dirname "$0")/binds-count"',
+  'cmd="$2"',
+  'if [ "$cmd" = "binds" ]; then',
+  '  count=0',
+  '  [ -f "$count_file" ] && count=$(cat "$count_file")',
+  '  count=$((count + 1))',
+  '  printf "%s" "$count" > "$count_file"',
+  '  if [ "$count" -ge 2 ]; then cat "$(dirname "$0")/binds-after.json"; else cat "$(dirname "$0")/binds-before.json"; fi',
+  '  exit 0',
+  'fi',
+  'if [ "$cmd" = "configerrors" ]; then cat "$(dirname "$0")/config-errors.json"; exit 0; fi',
+  'exit 0',
+  '',
+].join(String.fromCharCode(10))
+
+/** Directories and environment one bind install runs against. */
+interface BindFixture {
+  configDir: string
+  stateDir: string
+  messageDir: string
+  env: NodeJS.ProcessEnv
 }
 
-test('installBind writes both binds, verifies them and records the shortcut', async (t) => {
-  const configDir = tempDir('hyprscope-bind-install-config-')
-  const binDir = tempDir('hyprscope-bind-install-bin-')
-  const stateDir = tempDir('hyprscope-bind-install-state-')
+/**
+ * Build a disposable Hyprland config and a fake `hyprctl` that answers the
+ * conflict read, the post-reload read and `configerrors`.
+ * @param t Test context.
+ * @param before Bind records reported before the install.
+ * @param after Bind records reported after the reload.
+ * @param configErrors Configuration errors reported after the reload.
+ * @returns Fixture.
+ */
+function bindFixture(
+  t: import('node:test').TestContext,
+  before: unknown[],
+  after: unknown[],
+  configErrors: string[] = [],
+): BindFixture {
+  const configDir = tempDir('hyprscope-bind-config-')
+  const binDir = tempDir('hyprscope-bind-bin-')
+  const stateDir = tempDir('hyprscope-bind-state-')
   t.after(() => { removeDir(configDir); removeDir(binDir); removeDir(stateDir) })
   writeFileSync(join(configDir, 'hyprland.lua'), 'existing = true' + String.fromCharCode(10))
-  writeScript(binDir, 'hyprctl', managedBindScript())
+  writeFileSync(join(binDir, 'binds-before.json'), JSON.stringify(before))
+  writeFileSync(join(binDir, 'binds-after.json'), JSON.stringify(after))
+  writeFileSync(join(binDir, 'config-errors.json'), JSON.stringify(configErrors))
+  writeScript(binDir, 'hyprctl', FAKE_HYPRCTL)
   const oldPath = process.env.PATH
   process.env.PATH = binDir + ':' + (oldPath ?? '')
   t.after(() => { process.env.PATH = oldPath })
-  const result = await installBind({
+  const messageDir = join(stateDir, 'hyprscope', 'message')
+  return {
+    configDir,
+    stateDir,
+    messageDir,
     env: {
-      ...process.env, HYPR_CONFIG_DIR: configDir, XDG_STATE_HOME: stateDir,
+      ...process.env,
+      HYPR_CONFIG_DIR: configDir,
+      XDG_STATE_HOME: stateDir,
+      HYPRSCOPE_MESSAGE_DIR: messageDir,
       PATH: binDir + ':' + (oldPath ?? ''),
     },
-    session: { runtimeDir: '/tmp', signature: 'sig' } as never,
+  }
+}
+
+/** Bind descriptions the fake `hyprctl` reports after a successful reload. */
+const INSTALLED_BINDS = [
+  { description: 'hyprscope failsafe: revoke desktop control' },
+  { description: 'hyprscope message: open the desktop composer' },
+  { description: 'hyprscope: desktop annotate' },
+]
+
+/** Session stand-in the bind tests hand to the functions. */
+const bindSession = { runtimeDir: '/tmp', signature: 'sig' } as never
+
+test('installBind writes all three binds, verifies them and records both shortcuts', async (t) => {
+  const fixture = bindFixture(t, [], INSTALLED_BINDS)
+  const result = await installBind({
+    env: fixture.env,
+    session: bindSession,
     now: new Date('2026-01-01T00:00:00.000Z'),
   })
   assert.equal(result.key, 'SUPER + ALT + Escape')
   assert.equal(result.messageKey, 'SUPER + ALT + M')
+  assert.equal(result.annotateKey, 'SUPER + ALT + A')
   assert.match(result.messageCommand, /'message' 'open'/)
+  assert.match(result.annotateCommand, /'message' 'annotate'/)
   assert.equal(result.verified, true)
   assert.equal(result.messageVerified, true)
-  const config = readFileSync(join(configDir, 'hyprland.lua'), 'utf8')
+  assert.equal(result.annotateVerified, true)
+  const config = readFileSync(join(fixture.configDir, 'hyprland.lua'), 'utf8')
   assert.match(config, /existing = true/)
+  assert.equal((config.match(/hl\.bind\(/g) ?? []).length, 3)
   assert.match(config, /hl\.bind\("SUPER \+ ALT \+ Escape"/)
   assert.match(config, /hl\.bind\("SUPER \+ ALT \+ M"/)
+  assert.match(config, /hl\.bind\("SUPER \+ ALT \+ A"/)
+  assert.match(config, /description = "hyprscope: desktop annotate"/)
   assert.equal((config.match(/>>> hyprscope failsafe >>>/g) ?? []).length, 1)
+  // The annotate record lives beside shortcut.txt, the path the overlay reads.
+  assert.equal(result.annotateShortcutFile, join(fixture.messageDir, 'annotate-shortcut.txt'))
+  assert.equal(result.annotateShortcutFile, annotateShortcutPath(fixture.env))
   assert.equal(readFileSync(result.shortcutFile, 'utf8').trim(), 'SUPER + ALT + M')
+  assert.equal(readFileSync(result.annotateShortcutFile, 'utf8').trim(), 'SUPER + ALT + A')
   assert.ok(result.backupFile !== null && existsSync(result.backupFile))
+  assert.equal(existsSync(join(fixture.configDir, 'hyprscope.lua')), true)
+})
+
+test('installBind records an --annotate-key override in the config and the overlay file', async (t) => {
+  const fixture = bindFixture(t, [], INSTALLED_BINDS)
+  const result = await installBind({
+    annotateKey: 'super + shift + a',
+    env: fixture.env,
+    session: bindSession,
+  })
+  assert.equal(result.annotateKey, 'SUPER + SHIFT + A')
+  assert.match(result.annotateCommand, /'message' 'annotate'/)
+  const config = readFileSync(join(fixture.configDir, 'hyprland.lua'), 'utf8')
+  assert.match(config, /hl\.bind\("SUPER \+ SHIFT \+ A", .*hyprscope: desktop annotate/)
+  assert.doesNotMatch(config, /hl\.bind\("SUPER \+ ALT \+ A"/)
+  assert.equal(readFileSync(result.annotateShortcutFile, 'utf8').trim(), 'SUPER + SHIFT + A')
+  assert.equal(readFileSync(result.shortcutFile, 'utf8').trim(), 'SUPER + ALT + M')
 })
 
 test('installBind refuses a message key that is already bound', async (t) => {
-  const configDir = tempDir('hyprscope-bind-conflict-config-')
-  const binDir = tempDir('hyprscope-bind-conflict-bin-')
-  const stateDir = tempDir('hyprscope-bind-conflict-state-')
-  t.after(() => { removeDir(configDir); removeDir(binDir); removeDir(stateDir) })
-  writeFileSync(join(configDir, 'hyprland.lua'), 'existing = true' + String.fromCharCode(10))
-  writeScript(binDir, 'hyprctl',
-    '#!/bin/sh' + String.fromCharCode(10) + 'printf "%s" "[{\\"modmask\\":72,\\"key\\":\\"M\\"}]"' + String.fromCharCode(10))
-  const oldPath = process.env.PATH
-  process.env.PATH = binDir + ':' + (oldPath ?? '')
-  t.after(() => { process.env.PATH = oldPath })
+  const fixture = bindFixture(t, [{ modmask: 72, key: 'M', description: 'foreign bind' }], INSTALLED_BINDS)
   await assert.rejects(
-    installBind({
-      env: { ...process.env, HYPR_CONFIG_DIR: configDir, XDG_STATE_HOME: stateDir },
-      session: { runtimeDir: '/tmp', signature: 'sig' } as never,
-    }),
+    installBind({ env: fixture.env, session: bindSession }),
     (error: Error & { code?: string }) => error.code === 'BIND_FAILED' && /SUPER \+ ALT \+ M/.test(error.message),
   )
+  assert.doesNotMatch(readFileSync(join(fixture.configDir, 'hyprland.lua'), 'utf8'), /hl\.bind/)
+})
+
+test('installBind refuses an annotate key that is already bound', async (t) => {
+  const fixture = bindFixture(t, [{ modmask: 72, key: 'A', description: 'foreign bind' }], INSTALLED_BINDS)
+  await assert.rejects(
+    installBind({ env: fixture.env, session: bindSession }),
+    (error: Error & { code?: string }) => error.code === 'BIND_FAILED' && /SUPER \+ ALT \+ A/.test(error.message),
+  )
+  assert.doesNotMatch(readFileSync(join(fixture.configDir, 'hyprland.lua'), 'utf8'), /hl\.bind/)
 })
 
 test('installBind refuses to bind the same key twice', async (t) => {
@@ -825,89 +918,115 @@ test('installBind refuses to bind the same key twice', async (t) => {
       key: 'SUPER + ALT + M',
       messageKey: 'SUPER + ALT + M',
       env: { ...process.env, HYPR_CONFIG_DIR: configDir, XDG_STATE_HOME: stateDir },
-      session: { runtimeDir: '/tmp', signature: 'sig' } as never,
+      session: bindSession,
     }),
     (error: Error & { code?: string }) => error.code === 'BIND_FAILED' && /must differ/.test(error.message),
   )
 })
-test('a reinstall replaces the managed binds instead of treating them as conflicts', async (t) => {
-  const configDir = tempDir('hyprscope-bind-reinstall-config-')
-  const binDir = tempDir('hyprscope-bind-reinstall-bin-')
-  const stateDir = tempDir('hyprscope-bind-reinstall-state-')
-  t.after(() => { removeDir(configDir); removeDir(binDir); removeDir(stateDir) })
-  writeFileSync(join(configDir, 'hyprland.lua'), 'existing = true' + String.fromCharCode(10))
-  const script = [
-    '#!/bin/sh',
-    'count_file="$(dirname "$0")/binds-count"',
-    'cmd="$2"',
-    'if [ "$cmd" = "binds" ]; then',
-    '  count=0',
-    '  [ -f "$count_file" ] && count=$(cat "$count_file")',
-    '  count=$((count + 1))',
-    '  printf "%s" "$count" > "$count_file"',
-    '  if [ "$count" -ge 2 ]; then',
-    '    printf "%s" "[{\\\"description\\\":\\\"hyprscope failsafe: revoke desktop control\\\"},{\\\"description\\\":\\\"hyprscope message: open the desktop composer\\\"}]"',
-    '  else',
-    '    printf "%s" "[{\\\"modmask\\\":72,\\\"key\\\":\\\"Escape\\\",\\\"description\\\":\\\"hyprscope failsafe: revoke desktop control\\\"},{\\\"modmask\\\":72,\\\"key\\\":\\\"M\\\",\\\"description\\\":\\\"hyprscope message: open the desktop composer\\\"}]"',
-    '  fi',
-    '  exit 0',
-    'fi',
-    'if [ "$cmd" = "configerrors" ]; then printf "%s" "[]"; exit 0; fi',
-    'exit 0',
-    '',
-  ].join(String.fromCharCode(10))
-  writeScript(binDir, 'hyprctl', script)
-  const oldPath = process.env.PATH
-  process.env.PATH = binDir + ':' + (oldPath ?? '')
-  t.after(() => { process.env.PATH = oldPath })
-  const result = await installBind({
-    env: { ...process.env, HYPR_CONFIG_DIR: configDir, XDG_STATE_HOME: stateDir },
-    session: { runtimeDir: '/tmp', signature: 'sig' } as never,
-  })
-  assert.equal(result.verified, true)
-  assert.equal(result.messageVerified, true)
-  const config = readFileSync(join(configDir, 'hyprland.lua'), 'utf8')
-  assert.equal((config.match(/>>> hyprscope failsafe >>>/g) ?? []).length, 1)
-  assert.equal((config.match(/hl\.bind\(/g) ?? []).length, 2)
-})
-test('a partial verification restores the configuration and removes the generated Lua', async (t) => {
-  const configDir = tempDir('hyprscope-bind-partial-config-')
-  const binDir = tempDir('hyprscope-bind-partial-bin-')
-  const stateDir = tempDir('hyprscope-bind-partial-state-')
-  t.after(() => { removeDir(configDir); removeDir(binDir); removeDir(stateDir) })
-  const original = 'existing = true' + String.fromCharCode(10)
-  writeFileSync(join(configDir, 'hyprland.lua'), original)
-  const script = [
-    '#!/bin/sh',
-    'count_file="$(dirname "$0")/binds-count"',
-    'cmd="$2"',
-    'if [ "$cmd" = "binds" ]; then',
-    '  count=0',
-    '  [ -f "$count_file" ] && count=$(cat "$count_file")',
-    '  count=$((count + 1))',
-    '  printf "%s" "$count" > "$count_file"',
-    '  if [ "$count" -ge 2 ]; then',
-    '    printf "%s" "[{\\\"description\\\":\\\"hyprscope failsafe: revoke desktop control\\\"}]"',
-    '  else',
-    '    printf "%s" "[]"',
-    '  fi',
-    '  exit 0',
-    'fi',
-    'if [ "$cmd" = "configerrors" ]; then printf "%s" "[]"; exit 0; fi',
-    'exit 0',
-    '',
-  ].join(String.fromCharCode(10))
-  writeScript(binDir, 'hyprctl', script)
-  const oldPath = process.env.PATH
-  process.env.PATH = binDir + ':' + (oldPath ?? '')
-  t.after(() => { process.env.PATH = oldPath })
+
+test('installBind refuses an annotate key that duplicates a managed key', async (t) => {
+  const fixture = bindFixture(t, [], INSTALLED_BINDS)
   await assert.rejects(
     installBind({
-      env: { ...process.env, HYPR_CONFIG_DIR: configDir, XDG_STATE_HOME: stateDir },
-      session: { runtimeDir: '/tmp', signature: 'sig' } as never,
+      annotateKey: 'super+alt+m',
+      env: fixture.env,
+      session: bindSession,
     }),
+    (error: Error & { code?: string; details?: Record<string, unknown> }) =>
+      error.code === 'BIND_FAILED'
+      && /must differ/.test(error.message)
+      && Array.isArray(error.details?.duplicated)
+      && (error.details?.duplicated as string[]).includes('SUPER + ALT + M'),
+  )
+  assert.doesNotMatch(readFileSync(join(fixture.configDir, 'hyprland.lua'), 'utf8'), /hl\.bind/)
+})
+
+test('a reinstall replaces all three managed binds instead of treating them as conflicts', async (t) => {
+  const fixture = bindFixture(t, [
+    { modmask: 72, key: 'Escape', description: 'hyprscope failsafe: revoke desktop control' },
+    { modmask: 72, key: 'M', description: 'hyprscope message: open the desktop composer' },
+    { modmask: 72, key: 'A', description: 'hyprscope: desktop annotate' },
+  ], INSTALLED_BINDS)
+  const result = await installBind({ env: fixture.env, session: bindSession })
+  assert.equal(result.verified, true)
+  assert.equal(result.messageVerified, true)
+  assert.equal(result.annotateVerified, true)
+  const config = readFileSync(join(fixture.configDir, 'hyprland.lua'), 'utf8')
+  assert.equal((config.match(/>>> hyprscope failsafe >>>/g) ?? []).length, 1)
+  assert.equal((config.match(/hl\.bind\(/g) ?? []).length, 3)
+  assert.equal(readFileSync(result.annotateShortcutFile, 'utf8').trim(), 'SUPER + ALT + A')
+})
+
+test('a failed reload verification restores the config, the Lua file and both shortcut records', async (t) => {
+  // The reload reports the failsafe and message binds but not the annotate one.
+  const fixture = bindFixture(t, [], INSTALLED_BINDS.slice(0, 2))
+  const original = readFileSync(join(fixture.configDir, 'hyprland.lua'), 'utf8')
+  mkdirSync(fixture.messageDir, { recursive: true })
+  writeFileSync(join(fixture.messageDir, 'shortcut.txt'), 'OLD MESSAGE' + String.fromCharCode(10))
+  writeFileSync(join(fixture.messageDir, 'annotate-shortcut.txt'), 'OLD ANNOTATE' + String.fromCharCode(10))
+  await assert.rejects(
+    installBind({ env: fixture.env, session: bindSession }),
+    (error: Error & { code?: string; details?: Record<string, unknown> }) =>
+      error.code === 'BIND_FAILED'
+      && error.details?.annotateVerified === false
+      && error.details?.verified === true
+      && error.details?.messageVerified === true,
+  )
+  assert.equal(readFileSync(join(fixture.configDir, 'hyprland.lua'), 'utf8'), original)
+  assert.equal(existsSync(join(fixture.configDir, 'hyprscope.lua')), false)
+  assert.equal(readFileSync(join(fixture.messageDir, 'shortcut.txt'), 'utf8'), 'OLD MESSAGE' + String.fromCharCode(10))
+  assert.equal(readFileSync(join(fixture.messageDir, 'annotate-shortcut.txt'), 'utf8'),
+    'OLD ANNOTATE' + String.fromCharCode(10))
+})
+
+test('a partial verification leaves no shortcut records behind', async (t) => {
+  const fixture = bindFixture(t, [], INSTALLED_BINDS.slice(0, 2))
+  const original = readFileSync(join(fixture.configDir, 'hyprland.lua'), 'utf8')
+  await assert.rejects(
+    installBind({ env: fixture.env, session: bindSession }),
     (error: Error & { code?: string }) => error.code === 'BIND_FAILED',
   )
-  assert.equal(readFileSync(join(configDir, 'hyprland.lua'), 'utf8'), original)
-  assert.equal(existsSync(join(configDir, 'hyprscope.lua')), false)
+  assert.equal(readFileSync(join(fixture.configDir, 'hyprland.lua'), 'utf8'), original)
+  assert.equal(existsSync(join(fixture.configDir, 'hyprscope.lua')), false)
+  assert.equal(existsSync(join(fixture.messageDir, 'shortcut.txt')), false)
+  assert.equal(existsSync(join(fixture.messageDir, 'annotate-shortcut.txt')), false)
+})
+
+test('a broken configuration restores the config and both shortcut records', async (t) => {
+  const fixture = bindFixture(t, [], INSTALLED_BINDS, ['hl.bind(...) failed in hyprscope.lua'])
+  mkdirSync(fixture.messageDir, { recursive: true })
+  writeFileSync(join(fixture.messageDir, 'shortcut.txt'), 'OLD MESSAGE' + String.fromCharCode(10))
+  const original = readFileSync(join(fixture.configDir, 'hyprland.lua'), 'utf8')
+  await assert.rejects(
+    installBind({ env: fixture.env, session: bindSession }),
+    (error: Error & { code?: string }) => error.code === 'BIND_FAILED' && /broke the Hyprland configuration/.test(error.message),
+  )
+  assert.equal(readFileSync(join(fixture.configDir, 'hyprland.lua'), 'utf8'), original)
+  assert.equal(existsSync(join(fixture.configDir, 'hyprscope.lua')), false)
+  assert.equal(readFileSync(join(fixture.messageDir, 'shortcut.txt'), 'utf8'), 'OLD MESSAGE' + String.fromCharCode(10))
+  assert.equal(existsSync(join(fixture.messageDir, 'annotate-shortcut.txt')), false)
+})
+
+test('uninstallBind removes the managed block, the Lua file and both shortcut records', async (t) => {
+  const fixture = bindFixture(t, [], INSTALLED_BINDS)
+  writeFileSync(join(fixture.configDir, 'hyprland.lua'), [
+    'before = true',
+    configBlock('SUPER + ALT + ESC', 'node panic', 'SUPER + ALT + M', 'node message', 'SUPER + ALT + A', 'node annotate'),
+    'after = true',
+    '',
+  ].join('\n'))
+  writeFileSync(join(fixture.configDir, 'hyprscope.lua'), 'generated = true' + String.fromCharCode(10))
+  mkdirSync(fixture.messageDir, { recursive: true })
+  writeFileSync(join(fixture.messageDir, 'shortcut.txt'), 'SUPER + ALT + M' + String.fromCharCode(10))
+  writeFileSync(join(fixture.messageDir, 'annotate-shortcut.txt'), 'SUPER + ALT + A' + String.fromCharCode(10))
+  const result = await uninstallBind({ env: fixture.env, session: bindSession })
+  assert.equal(result.removed, true)
+  const text = readFileSync(join(fixture.configDir, 'hyprland.lua'), 'utf8')
+  assert.doesNotMatch(text, />>> hyprscope failsafe >>>/)
+  assert.match(text, /before = true/)
+  assert.match(text, /after = true/)
+  assert.equal(existsSync(join(fixture.configDir, 'hyprscope.lua')), false)
+  assert.equal(existsSync(join(fixture.messageDir, 'shortcut.txt')), false)
+  assert.equal(existsSync(join(fixture.messageDir, 'annotate-shortcut.txt')), false)
+  assert.ok(result.backupFile !== null && existsSync(result.backupFile))
 })

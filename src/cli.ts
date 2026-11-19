@@ -47,7 +47,7 @@ Commands:
   screenshot    Capture a PNG of the layout, one monitor, a region, or one window
   events        Stream compositor events
   control       Lease-gated control surface (run "hyprscope control --help")
-  message       Desktop message composer for a running DSH Host (run "hyprscope message --help")
+  message       Desktop message composer and annotation overlay for a DSH Host (run "hyprscope message --help")
 
 Options:
   --json                 Machine-readable output

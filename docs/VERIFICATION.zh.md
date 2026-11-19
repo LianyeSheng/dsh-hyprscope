@@ -299,6 +299,19 @@ node bin/hyprscope.ts screenshot --window-app foot --output .tmp/ambiguous.png
 - 快捷键：`installBind` 只对着假 `hyprctl` 演练过（两个 `description` 都验证、消息键写进 `shortcut.txt`、冲突和相同键被拒绝）。本轮没有改真实的 `~/.config/hypr/hyprland.lua`，所以两条 bind 还没有真机 `hyprctl binds -j` 条目。
 - 插件桥：单元测试用假 Cordis 上下文和假 `bin/hyprscope.ts` 驱动，覆盖激活与状态、启动时浮层重试、会话跟踪（只跟根会话）、消费消息文档、附带截图、`sessionController.prompt` 注入、图片被拒时的不带图重试、错误回执和释放。浮层在成功启动后被杀掉、以及心跳把它重新拉起，只用报告死 pid 的假 CLI 做过单元测试，没有真的去杀一个运行中的 Quickshell。没有对真正在运行的 DSH Host 做注入：当前运行的 Host 早于这次改动，本轮也没有重启它，因此 `sessionController.prompt` 的进程内调用由它的公开方法契约和假服务确立，而不是真机消息。
 
+## 桌面标注、按住说话与意图卡（2026-11-19）
+
+标注面及其桥接和桌面消息面在同一天加入。本节记录这次改动的自动检查覆盖，并如实写明没有演练的部分；它不是“实机路径在别的机器上也成立”的声明。
+
+**自动检查。** `pnpm test` 通过全部 540 个测试，0 失败、0 跳过，覆盖仓库测试套件和 DSH 组合包：契约校验、单元测试，以及一个端到端的假会话集成用例。`qmllint overlay/message/AnnotateSurface.qml overlay/message/shell.qml` 无输出。
+
+- **契约与状态文件** —— `test/message.test.ts`：标注会话 id 与路径形状、拒绝错误版本或字段类型的校验器、原子读写 helper、旧 `open.json` 形状与 `mode: "annotate"` 的对比，以及 CLI 的 annotate 成功、Host 不可用、`NO_SESSION` 和 `OVERLAY_FAILED` 路径（后两者不写请求）。
+- **受管 bind** —— `test/lease.test.ts`：三条 bind 及其 description、`--annotate-key` 覆盖、已占用或重复键被拒绝、受管块被替换、reload 失败或部分验证失败后回滚配置和两份快捷键记录（并删掉生成的 Lua 文件），以及完整卸载。
+- **桥与意图卡** —— `plugins/dsh-hyprscope/test/annotate.test.js`：按指针再按焦点选监视器、相交窗口列表及其上限、卡片的几何/窗口/评论/语音绑定行、未绑定短语按全局备注、缺截图的说明与文本上限、nonce 与重复请求处理，以及一个完整的假会话：截屏、转写并只注入一条 prompt。
+- **语音几何** —— `plugins/dsh-hyprscope/test/voice.test.js`：规范的 44 字节 RIFF/WAVE 头、绝对时间的 PCM 偏移与按采样对齐的切分、带静音/补边/最短长度的 VAD 短语切分，以及全部配对规则，包括 60% 阈值、anchor 回退和 2 秒顺序窗口。
+
+**没有在真实桌面上验证的部分。** 安装器只对着假 `hyprctl` 和假实例演练过，所以真实的 `hyprctl binds -j` 里还没有标注条目，三个快捷键也没有在运行中的 compositor 上按过。标注浮层没有在真实 Quickshell 会话里渲染或操作过：画图、按住 Space 录音、审查卡编辑和错误卡由单元测试和 QML 静态检查覆盖，不是交互验证。没有录过真实麦克风，也没有跑过真实的 SenseVoice 转写；测试喂的是合成 PCM 和假的 `speechToText` 服务。没有向运行中的 DSH Host 注入过意图卡：`sessionController.prompt` 的进程内调用由公开方法契约和假服务确立，而不是真机消息。装上这份 checkout 之后，重启 DSH，运行 `hyprscope control install-bind`，再手工确认：标注快捷键能打开冻结画面，画一个形状并说一段话会出现在审查卡里，最终消息带着干净截图和几何卡片进入会话。
+
 ## 没有覆盖到的
 
 多显示器、多 Hyprland 实例、多 seat、锁屏状态下的行为，这份记录里都没有实测条目，也没做跨版本对比；租约的物理输入拦截能力本来就不存在（见 [LEASE.zh.md](/docs/LEASE.zh.md)）。要下结论得在对应环境里再跑。

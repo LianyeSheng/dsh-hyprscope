@@ -24,7 +24,7 @@ Commands:
   ops              List the supported ops and their fields (--json for the catalog)
   status           Print the current lease
   panic            Emergency release used by the failsafe shortcut; not an agent workflow step
-  install-bind     Install the failsafe and desktop-message shortcuts into the Hyprland config
+  install-bind     Install the failsafe, desktop-message and desktop-annotate shortcuts into the Hyprland config
   uninstall-bind   Remove the managed shortcuts and the generated Lua file
   baseline         Measure this machine's capabilities and ask the host to accept them
   desktop          Start, attach, inspect, or stop an agent-dedicated desktop
@@ -34,6 +34,7 @@ Options:
   --consent <secs>  How long the consent card waits (default 45)
   --key <combo>     Failsafe key for install-bind (default "SUPER + ALT + ESC")
   --message-key <combo>  Desktop-message key for install-bind (default "SUPER + ALT + M")
+  --annotate-key <combo> Desktop-annotate key for install-bind (default "SUPER + ALT + A")
   --source <name>   Origin recorded in the lease (default: agent or host)
   --max-resumes <n> Recovery attempts one run may use (default 1, max 3)
   --dry-run         Validate the plan without asking
@@ -57,6 +58,7 @@ export interface LeaseCliOptions {
   consentSec?: number
   key?: string
   messageKey?: string
+  annotateKey?: string
   source?: string
   desktop?: string
   runtimeDir?: string
@@ -124,7 +126,7 @@ async function readPlanInput(io: Io): Promise<string> {
 }
 
 const VALUE_OPTIONS: Record<string, keyof LeaseCliOptions> = {
-  '--consent': 'consentSec', '--key': 'key', '--message-key': 'messageKey',
+  '--consent': 'consentSec', '--key': 'key', '--message-key': 'messageKey', '--annotate-key': 'annotateKey',
   '--source': 'source', '--max-resumes': 'maxResumes', '--desktop': 'desktop',
   '--runtime-dir': 'runtimeDir', '--signature': 'signature', '--size': 'size', '--consent-source': 'consentSource',
   '--lang': 'lang',
@@ -408,11 +410,20 @@ export async function main(argv: string[], io: Io = { stdout: process.stdout, st
       case 'install-bind': {
         if (targetOf(options) !== 'user') throw usage('install-bind only applies to the user\'s desktop')
         const user = await resolveFor(options, 'user')
-        const result = await installBind({ key: options.key, messageKey: options.messageKey, session: user.session })
+        const result = await installBind({
+          key: options.key,
+          messageKey: options.messageKey,
+          annotateKey: options.annotateKey,
+          session: user.session,
+        })
         print(io, result, options.json, value => `installed failsafe ${value.key} → ${value.command}`
           + `\ninstalled desktop message ${value.messageKey} → ${value.messageCommand}`
+          + `\ninstalled desktop annotate ${value.annotateKey} → ${value.annotateCommand}`
           + `\nshortcut recorded in ${value.shortcutFile}`
-          + `${value.verified && value.messageVerified ? '' : ' (not all binds were observed in hyprctl binds — check the config)'}`)
+          + `\nannotate shortcut recorded in ${value.annotateShortcutFile}`
+          + `${value.verified && value.messageVerified && value.annotateVerified
+            ? ''
+            : ' (not all binds were observed in hyprctl binds — check the config)'}`)
         return 0
       }
       case 'uninstall-bind': {

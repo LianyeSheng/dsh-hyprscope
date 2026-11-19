@@ -143,6 +143,8 @@ const rules = [
   { match: /^(src\/cli\.ts|src\/screenshot\.ts|src\/format\.ts)$/, needs: ['README.md', 'docs/PROTOCOL.md', skillPath], why: 'the read-only surface changed' },
   { match: /^src\/plan\//, needs: ['docs/PLAN.md', 'docs/PROTOCOL.md'], why: 'the plan language or executor changed' },
   { match: /^src\/lease\//, needs: ['docs/LEASE.md'], why: 'the lease protocol changed' },
+  { match: /^src\/message\//, needs: ['docs/PROTOCOL.md', skillPath], why: 'the desktop message or annotate protocol changed' },
+  { match: /^overlay\//, needs: ['docs/DSH-PLUGIN.md', skillPath], why: 'the desktop overlay changed' },
   { match: /^src\/compat\//, needs: ['docs/COMPATIBILITY.md', 'docs/BASELINE.md'], why: 'the capability baseline changed' },
   { match: /^src\/desktop\//, needs: ['docs/DESKTOP.md'], why: 'the agent desktop changed' },
   { match: /^src\/inject\//, needs: ['docs/LEASE.md', 'docs/PLAN.md'], why: 'the injection helper changed' },
