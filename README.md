@@ -2,11 +2,35 @@
 
 English | [中文](/README.zh.md)
 
-> **Note:** The code in this repository is AI-generated; the author only did the project design and code review.
+![license](https://img.shields.io/badge/license-MIT-blue) ![node](https://img.shields.io/badge/node-%E2%89%A522-brightgreen) ![compositor](https://img.shields.io/badge/compositor-Hyprland-5ec8f2) ![DSH](https://img.shields.io/badge/DeepSeek%20Harness-plugin-4d6bfe)
 
-A CLI tool for Hyprland desktop observation and consent-gated control, plus a native, plug-and-play plugin for DeepSeek Harness (DSH). The observation layer is read-only: it discovers sessions, reads windows, workspaces and monitors, takes screenshots and subscribes to events. When something has to be changed, that goes through a consent-gated control lease: only after the host consents can an agent take over, and it can be revoked at any time.
+**Give an agent your Hyprland desktop, and make it ask first.**
 
-It starts from a concrete problem: a DSH process is often not inside the graphical session, `WAYLAND_DISPLAY` and `HYPRLAND_INSTANCE_SIGNATURE` are both empty, and it can neither see the desktop nor know which compositor to send a request to. hyprscope finds the session and shapes the state into stable fields, so that DSH's CUA provider can be wired up later.
+A CLI for Hyprland desktop observation and consent-gated control, plus a native, plug-and-play plugin for DeepSeek Harness (DSH). Observation is read-only. Every change goes through a lease: the plan is frozen before the consent card appears, the card names the steps and the time budget, the run is bounded by a TTL and a revoke shortcut, and a broken premise comes back as a fault record instead of a silent guess.
+
+There are two ways to hand over the desktop. Let it act on yours, where every plan waits for your approval — or give it a desktop of its own: a nested Hyprland in one window, where it works while you keep using yours.
+
+## Install
+
+```sh
+# from the checkout (works today)
+git clone https://github.com/LianyeSheng/dsh-hyprscope
+cd dsh-hyprscope && pnpm install
+
+# from npm (one command, from the first release on)
+npm i -g dsh-hyprscope          # the CLI
+dsh plugin add dsh-hyprscope    # the DSH plugin: one package carries both
+```
+
+```sh
+hyprscope doctor                       # find the session, report what is observable
+hyprscope state --json                 # one snapshot in stable fields
+hyprscope screenshot --output shot.png # layout, monitor, region or a single window
+```
+
+In DSH the package adds six tools: `hyprscope_observe`, `hyprscope_screenshot` and `hyprscope_events` read the desktop; `hyprscope_plan`, `hyprscope_baseline` and `hyprscope_desktop` change it through `hyprscope control` and its consent card. Control also needs an accepted capability baseline: `hyprscope control baseline --probe` measures this machine once and asks you to accept the result.
+
+Only `bin/wl-inject` (pointer and keyboard), `bin/wl-capture` (single-window capture) and `bin/wl-scratch` (the probe's own window) are native helpers. Session discovery, state, events and layout/monitor/region screenshots work without them, and `pnpm run build:helpers` builds whatever this machine can build.
 
 The project has one entry point and three command groups: `hyprscope` observes read-only, `hyprscope control` is the consent-gated control surface, and `hyprscope message` drives the desktop hint, composer and annotation surface that feed a running DSH Host. They share session discovery, but a read-only command never loads the lease, executor or desktop lifecycle paths, the message surface loads none of them either, and every command that can change the desktop lives under `control`.
 
@@ -153,7 +177,7 @@ A screenshot can be taken in four ways: by default it captures the whole layout,
 
 `plugins/dsh-hyprscope/` is the project's native, plug-and-play DSH Host bundle; it turns these commands into six tools for the model, so a session calls tools instead of composing `node bin/hyprscope.ts ... --json` commands. `hyprscope_observe`, `hyprscope_screenshot` and `hyprscope_events` read the desktop; `hyprscope_plan`, `hyprscope_baseline` and `hyprscope_desktop` go through `hyprscope control`; a plan run is the consent step and also covers what used to be a single-step action. Observation needs no consent; a desktop change still needs the host's consent in the control lease and an accepted capability baseline, and the plugin adds no bypass. The tools that can show a consent card also take an optional `language` (`zh` or `en`; omitted keeps the Chinese default): `hyprscope_plan` `run` and `hyprscope_baseline` `probe`.
 
-Open **Plugins**, choose **Add plugin**, and enter the absolute directory `/home/jw/workspace/dsh-hyprscope/plugins/dsh-hyprscope`; or ask the DSH agent to call `plugin_manager` `install_bundle` with that directory. The bundle only loads on Linux and needs the checkout and Node 22 on the same machine as DSH. Besides the six tools it starts the desktop-message hint and accepts messages from the shortcut while DSH runs in the background. The tool surface, configuration keys and limitations are in [docs/plugin/DSH-PLUGIN.md](/docs/plugin/DSH-PLUGIN.md).
+Install it from the registry with `dsh plugin add dsh-hyprscope`, or open **Plugins**, choose **Add plugin**, and enter a checkout directory or the absolute directory `/home/jw/workspace/dsh-hyprscope/plugins/dsh-hyprscope`; the DSH agent can also call `plugin_manager` `install_bundle` with one of them. The bundle loads only on Linux, needs Node 22 on the same machine as DSH, and spawns `bin/hyprscope.ts` from a checkout or the emitted `dist/bin/hyprscope.js` from an installed package (Node refuses to strip types under `node_modules`). Besides the six tools it starts the desktop hint, and a shortcut can hand it a message or an annotated screenshot while DSH runs in the background. The tool surface, configuration keys and limitations are in [docs/plugin/DSH-PLUGIN.md](/docs/plugin/DSH-PLUGIN.md).
 
 ## Why the session has to be found on its own
 
@@ -180,3 +204,7 @@ The agent desktop — a nested Hyprland of its own — is implemented; its desig
 - Lock state is best-effort: it only reads logind's `LockedHint`, and `locked: null` means only that there is no evidence, which is not the same as the session being unlocked.
 - When several Hyprland instances run on the same machine it picks one by log recency by default without confirming that it still responds; it is better to pass `--signature` explicitly.
 - The rest of the fields follow the Hyprland version; for version-sensitive points and field definitions see [docs/cli/PROTOCOL.md](/docs/cli/PROTOCOL.md), and in scripts rely on `--json`.
+
+## About this project
+
+The code in this repository is AI-generated; the author did the project design and code review. Verification on real hardware is recorded in [docs/VERIFICATION.md](/docs/VERIFICATION.md): what was measured, on which compositor version, and what stayed unknown.

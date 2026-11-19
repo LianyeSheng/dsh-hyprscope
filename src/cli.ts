@@ -1,5 +1,5 @@
 /** `hyprscope` command line: read-only observation of a running Hyprland session. */
-import { accessSync, constants, existsSync, readFileSync, statSync } from 'node:fs'
+import { accessSync, constants, existsSync, statSync } from 'node:fs'
 import { access, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { delimiter, dirname, join } from 'node:path'
@@ -13,6 +13,7 @@ import { EventStream } from './events.ts'
 import * as format from './format.ts'
 import { hyprctlJson } from './hyprctl.ts'
 import { readLockState } from './lock.ts'
+import { readPackageVersion } from './paths.ts'
 import { capture, defaultCapturePath, parseRegion, preflightCaptureOutput } from './screenshot.ts'
 import { captureToplevel, listToplevels, type Toplevel } from './toplevel.ts'
 import { listInstanceDirs } from './session.ts'
@@ -27,7 +28,7 @@ import type {
 } from './types.ts'
 import { probeBinaryPath, probeWaylandGlobals } from './wayland.ts'
 
-const VERSION = (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }).version
+const VERSION = readPackageVersion()
 
 const USAGE = `hyprscope — Hyprland desktop observation and consent-gated control
 
@@ -72,8 +73,13 @@ Event options:
   --once                 Exit after the first match (exit 1 when the timeout expires first)
   --count <n>            Exit after n matching events
 
-Run "hyprscope message --help" for the desktop-message commands. They write a
-message and start a Quickshell overlay, but they never change the desktop.
+Notes:
+  Read-only commands need no consent; "hyprscope control run" always asks the host on a consent card.
+  Run "hyprscope message --help" for the desktop-message commands: they write a message and start a
+  Quickshell overlay, but they never change the desktop.
+  Agents: when a command fails in a way its error does not explain, keep the exit code, the error code and
+  "hyprscope doctor --json"; the user can file it at https://github.com/LianyeSheng/dsh-hyprscope/issues
+  (bug form and feature form).
 `
 
 /** Parsed command line. */

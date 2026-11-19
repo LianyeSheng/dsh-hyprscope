@@ -22,12 +22,11 @@
  */
 import { execFile, spawn, type ChildProcessByStdio } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
-import { constants as fsConstants, existsSync, readFileSync } from 'node:fs'
+import { constants as fsConstants, existsSync } from 'node:fs'
 import { access, appendFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import type { Readable } from 'node:stream'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { baselinePaths, computeState } from './baseline.ts'
 import { CAPABILITY_IDS, CAPABILITY_SPECS, capabilityLevel } from './catalog.ts'
@@ -38,6 +37,7 @@ import type {
   Fingerprint, GlobalFingerprint, MonitorFingerprint,
 } from './types.ts'
 import { ErrorCode, HyprscopeError } from '../errors.ts'
+import { binDir, readPackageVersion } from '../paths.ts'
 import { eventFields } from '../events.ts'
 import { hyprctlJson } from '../hyprctl.ts'
 import { defaultInjectorBinary, injectorArguments } from '../inject/injector.ts'
@@ -95,7 +95,7 @@ const EVENT_CONNECT_MS = 150
 const TOTAL_MEASURE_BUDGET_MS = 45_000
 
 /** Version of the tool that wrote the baseline. */
-const TOOL_VERSION = (JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as { version: string }).version
+const TOOL_VERSION = readPackageVersion()
 
 /** Options for {@link runProbe}. */
 export interface ProbeOptions {
@@ -250,7 +250,7 @@ async function isExecutable(path: string): Promise<boolean> {
  * @returns Absolute path under `bin/`.
  */
 function scratchBinaryPath(env: NodeJS.ProcessEnv): string {
-  return env.HYPRSCOPE_SCRATCH ?? fileURLToPath(new URL('../../bin/wl-scratch', import.meta.url))
+  return env.HYPRSCOPE_SCRATCH ?? join(binDir(), 'wl-scratch')
 }
 
 /**

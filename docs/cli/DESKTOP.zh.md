@@ -36,7 +36,7 @@
 - 没有 systemd unit，也没有自动重启：桌面会一直运行到 `desktop stop`、窗口被关闭或登录会话结束。
 - 关窗即销毁桌面。这是桌面自身唯一的撤销路径，`desktop stop` 是它的主动形式。
 - 如果当时有计划在跑，它以 `target.desktop-closed` fault，保留已确认的步骤，把事实交回来；agent 在对话里问用户是不是误触。
-- 关掉的桌面不会自动重启。关掉之后再 `desktop start` 会创建新实例，带新签名，新桌面需要自己的探针（测量结果更宽时探针会请宿主验收）。
+- 关掉的桌面不会自动重启。关掉之后再 `desktop start` 会创建新实例，带新签名，新桌面需要自己的探针：`start` 会在 compositor 起来之后自己跑这次探针，而在 agent 桌面里探针和它的验收都是程序化的，所以一次 start 仍然只有一次点击。测量失败时（helper 缺失、compositor 还没准备好）`start` 照常成功，报告 `baseline: none`，并打出 `next:` 那行提示该跑哪条探针命令。
 
 还有两点仍未决（§12）：关父窗口是否真的终止嵌套合成器，以及 DSH 会话结束时会不会回收后台任务的子进程。`desktop stop` 本身已经在测试机上验证过。
 
@@ -78,7 +78,7 @@ $XDG_STATE_HOME/hyprscope/desktop/     # persistent, agent-editable
 - 漂移比对记录的版本、provider、`input:follow_mouse`、绑定数量、是否绑定了不带修饰键的 F12、作为集合的配置错误，以及记录存在时的 `configHash`。任何不一致都是 `stale`；基线没有记录的值是 `unverified`；运行中的 compositor 报不出来的值是 `stale`。
 - 在漂移跟踪之前写下的基线没有 `effective` 块，它是 `unverified`，控制会以 `CAPABILITY` 拒绝，直到重测。
 - `desktop status` 会把改动过的生成配置报成 `stale`；`doctor` 报告 target、`fresh`/`stale`/`unverified` 判定、原因和字段差异。`run`（含 `--dry-run`）会在任何同意卡片之前以 `CAPABILITY` 拒绝 stale 或 unverified 的基线，因为控制必须由"对正在运行的东西的测量"来决定；只读观察不受影响。
-- 改 agent 片段会让基线失效。运行中的 compositor 还在用旧配置时，探针会被 `DESKTOP_FAILED` 拒绝（`stop and start the desktop before probing it`），所以流程是：先停桌面，再启动（新签名意味着新桌面需要单独探针），然后探测（放宽时探针会请宿主弹确认卡）。重启前把片段改回去，基线会重新变成 `fresh`。
+- 改 agent 片段会让基线失效。运行中的 compositor 还在用旧配置时，探针会被 `DESKTOP_FAILED` 拒绝（`stop and start the desktop before probing it`），所以流程是：先停桌面，再启动（新签名意味着新桌面会在 `start` 里被重新测量一次），如果 `start` 没能测成就再手动探测（在用户桌面上放宽时探针会请宿主弹确认卡，在 agent 桌面里则是程序化的）。重启前把片段改回去，基线会重新变成 `fresh`。
 - 其余情况下，重测 stale 基线走正常的探针流程；收窄仍然自动生效，放宽时探针会自己请宿主验收。
 
 这也是 agent 桌面比用户桌面便宜的原因：配置是我们生成的，所以版本相关的那一层可以按每个 Hyprland 版本认证一次，而安装层塌缩成"每份生成的配置测一次"。

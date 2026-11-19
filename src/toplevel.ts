@@ -9,9 +9,11 @@
  */
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
+import { join } from 'node:path'
 import { readFile, rm, writeFile } from 'node:fs/promises'
 import { promisify } from 'node:util'
 import { ErrorCode, HyprscopeError } from './errors.ts'
+import { binDir } from './paths.ts'
 import { encodePng, type RgbaImage } from './png.ts'
 import { pngDimensions, preflightCaptureOutput, type CaptureResult } from './screenshot.ts'
 import type { Session } from './types.ts'
@@ -71,7 +73,7 @@ interface HelperFailure {
  * @returns Absolute path to `bin/wl-capture`.
  */
 export function defaultCaptureBinary(): string {
-  return new URL('../bin/wl-capture', import.meta.url).pathname
+  return join(binDir(), 'wl-capture')
 }
 
 /**

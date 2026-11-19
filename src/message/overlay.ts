@@ -1,8 +1,9 @@
 /** Spawn the Quickshell overlay that renders the desktop-message hint and composer. */
 import { spawn } from 'node:child_process'
 import { closeSync, openSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
 import { ErrorCode, HyprscopeError } from '../errors.ts'
+import { overlayDirectory } from '../paths.ts'
 import type { Session } from '../types.ts'
 import type { RenderLanguage } from '../i18n.ts'
 import { ensureMessageDirectory, messagePaths, type MessagePaths } from './state.ts'
@@ -21,7 +22,7 @@ export interface MessageOverlayHandle {
  * @returns Absolute directory of the desktop-message Quickshell configuration.
  */
 export function messageOverlayDirectory(): string {
-  return fileURLToPath(new URL('../../overlay/message', import.meta.url))
+  return join(overlayDirectory(), 'message')
 }
 
 /**

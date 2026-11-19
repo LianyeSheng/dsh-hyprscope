@@ -1,5 +1,8 @@
 # Insert the hyprscope tool row; the plugin needs only ctx.tools.
+# The row name resolves through this package's `exports` when the bundle is
+# installed from npm (`dsh-hyprscope` is the package itself), and through the
+# linked checkout when it is installed from a local directory.
 - insert:
     - id: hyprscope
-      name: '@local/dsh-hyprscope'
+      name: dsh-hyprscope
       config: {}

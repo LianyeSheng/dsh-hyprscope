@@ -1,0 +1,148 @@
+{
+  "version": 1,
+  "id": "demo-terminal",
+  "reason": {
+    "zh": "演示：同意之后，在演示终端里输入一行命令并截图留证",
+    "en": "Demo: after consent, type one line into the demo terminal and capture the proof"
+  },
+  "summary": {
+    "zh": "聚焦演示终端，点一下，输入一行 echo，回车，然后确认屏幕确实变了",
+    "en": "Focus the demo terminal, click it, type one echo line, press Return, then verify the screen changed"
+  },
+  "budgetMs": 9000,
+  "settleMs": 800,
+  "steps": [
+    {
+      "op": "focusWindow",
+      "target": {
+        "app": "hyprscope-demo"
+      },
+      "requires": [
+        {
+          "kind": "window.exists",
+          "target": {
+            "app": "hyprscope-demo"
+          }
+        },
+        {
+          "kind": "window.geometry",
+          "target": {
+            "app": "hyprscope-demo"
+          }
+        }
+      ],
+      "expect": [
+        {
+          "kind": "window.focused",
+          "target": {
+            "app": "hyprscope-demo"
+          }
+        }
+      ]
+    },
+    {
+      "op": "click",
+      "at": {
+        "window": {
+          "app": "hyprscope-demo"
+        },
+        "point": [
+          0.5,
+          0.55
+        ]
+      },
+      "button": "left",
+      "requires": [
+        {
+          "kind": "window.focused",
+          "target": {
+            "app": "hyprscope-demo"
+          }
+        },
+        {
+          "kind": "window.geometry",
+          "target": {
+            "app": "hyprscope-demo"
+          }
+        }
+      ],
+      "expect": [
+        {
+          "kind": "window.focused",
+          "target": {
+            "app": "hyprscope-demo"
+          }
+        }
+      ]
+    },
+    {
+      "op": "text",
+      "text": "echo \"hyprscope: typed by an agent, after you said yes\"",
+      "requires": [
+        {
+          "kind": "window.focused",
+          "target": {
+            "app": "hyprscope-demo"
+          }
+        }
+      ],
+      "expect": [
+        {
+          "kind": "region.changed",
+          "target": {
+            "app": "hyprscope-demo"
+          },
+          "rect": [
+            0.02,
+            0.02,
+            0.96,
+            0.9
+          ]
+        }
+      ]
+    },
+    {
+      "op": "chord",
+      "keys": [
+        "Return"
+      ],
+      "requires": [
+        {
+          "kind": "window.focused",
+          "target": {
+            "app": "hyprscope-demo"
+          }
+        }
+      ],
+      "expect": [
+        {
+          "kind": "region.changed",
+          "target": {
+            "app": "hyprscope-demo"
+          },
+          "rect": [
+            0.02,
+            0.02,
+            0.96,
+            0.9
+          ]
+        }
+      ]
+    },
+    {
+      "op": "screenshot",
+      "label": "terminal",
+      "region": {
+        "window": {
+          "app": "hyprscope-demo"
+        },
+        "rect": [
+          0,
+          0,
+          1,
+          1
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+name: Feature request / 功能建议
+description: Something the tools should do, or a case they handle badly / 工具应该能做的事，或处理得不好的情况
+title: "[feature] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the task you were trying to finish, not only the API you want — the constraints are the interesting part.
+        / 请描述你想完成的任务，而不只是想要的接口：约束条件才是关键。
+
+  - type: textarea
+    id: task
+    attributes:
+      label: The task / 任务
+      description: What were you (or your agent) trying to accomplish on the desktop? / 你（或你的 agent）当时想在桌面上完成什么？
+    validations:
+      required: true
+
+  - type: textarea
+    id: today
+    attributes:
+      label: What happens today / 现在会怎样
+      description: The workaround, the extra steps, or the plan that had to be written by hand. / 现在的绕法、多出来的步骤，或者不得不手写的计划。
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would make it better / 怎样的改动会更好
+      description: A new op or predicate, a new tool argument, a different error code — whatever fits. / 新的 op 或谓词、新的工具参数、不同的错误码，都可以。
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety / 安全边界
+      options:
+        - label: This does not need the agent to act beyond what a plan can express / 这个需求不需要 agent 越出计划能表达的范围
+        - label: This does not need a capability the baseline cannot measure / 这个需求不需要基线测不到的能力
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where should it live? / 应该加在哪
+      options:
+        - CLI observation / 命令行观察
+        - CLI control / 命令行控制
+        - DSH plugin / DSH 插件
+        - Documentation / 文档
+        - Not sure / 不确定
+    validations:
+      required: true

@@ -8,6 +8,7 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { ErrorCode, HyprscopeError } from '../errors.ts'
+import { packageRoot } from '../paths.ts'
 import { CAPABILITY_SPECS, isCapabilityId } from './catalog.ts'
 import type {
   BaselineDocument, BaselineState, CapabilityEntry, CapabilityId, CapabilityLevel, CapabilityStatus,
@@ -56,7 +57,7 @@ export function baselinePaths(env: NodeJS.ProcessEnv = process.env, options: Bas
     pendingFile: join(dir, signature === null ? 'baseline.pending.json' : `${signature}.pending.json`),
     // Raw evidence is a run artifact, not state: docs/cli/BASELINE.md puts it under
     // out/baseline/<probeId>/, gitignored, next to the run artifacts.
-    evidenceRoot: env.HYPRSCOPE_BASELINE_EVIDENCE_DIR ?? new URL('../../out/baseline', import.meta.url).pathname,
+    evidenceRoot: env.HYPRSCOPE_BASELINE_EVIDENCE_DIR ?? join(packageRoot(), 'out', 'baseline'),
   }
 }
 

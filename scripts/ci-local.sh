@@ -48,6 +48,8 @@ run "wayland-tools: build the scratch window" \
   pnpm run build:scratch
 run "wayland-tools: build the window capture helper" \
   pnpm run build:capture
+run "wayland-tools: build every helper through the published script" \
+  bash scripts/build-helpers.sh --strict
 
 if [ "$fail" -ne 0 ]; then
   printf '\nlocal CI: FAILED\n' >&2

@@ -854,7 +854,7 @@ test('invalid config throws in apply before any tool is registered', (t) => {
 test('apply registers the hyprscope systemPrompt section when the service is available', (t) => {
   const harness = makeHarness(t)
   assert.deepEqual(harness.injectCalls, [['systemPrompt'], ['sessionController']])
-  assert.equal(harness.sections.length, 1)
+  assert.equal(harness.sections.length, 2)
   const section = harness.sections[0]
   assert.equal(section.name, 'hyprscope')
   assert.equal(section.order, 3050)
@@ -868,6 +868,20 @@ test('apply registers the hyprscope systemPrompt section when the service is ava
   assert.match(section.text, /confirmation card/)
   assert.doesNotMatch(section.text, /action "accept"/)
   assert.match(section.text, /Never approve a consent card/)
+})
+
+test('the feedback section asks for a silent reflection and points at the issue forms', (t) => {
+  const harness = makeHarness(t)
+  const section = harness.sections.find(entry => entry.name === 'hyprscope-feedback')
+  assert.ok(section, 'hyprscope-feedback section is registered')
+  assert.equal(section.order, 3051)
+  assert.match(section.text, /reflect once/)
+  assert.match(section.text, /Keep that reflection to yourself/)
+  assert.match(section.text, /only if the user asks/)
+  assert.match(section.text, /error code/)
+  assert.match(section.text, /github\.com\/LianyeSheng\/dsh-hyprscope\/issues/)
+  assert.match(section.text, /Do not open an issue yourself/)
+  assert.match(section.text, /screenshot of the user/)
 })
 
 test('systemPrompt injection failures never break apply', async (t) => {
@@ -884,15 +898,17 @@ test('systemPrompt injection failures never break apply', async (t) => {
   await new Promise((resolve) => setImmediate(resolve))
 })
 
-test('a missing bin/hyprscope.ts keeps activation but names projectDir on every call', async (t) => {
+test('a missing runnable entry keeps activation but names projectDir on every call', async (t) => {
   const harness = makeHarness(t, { writeCli: false })
   assert.equal(harness.definitions.size, 6)
   await assert.rejects(
     invoke(harness, 'hyprscope_observe', { kind: 'active' }),
     (error) => {
       assert.match(error.message, /hyprscope CLI not found at/)
-      assert.ok(error.message.includes(join(harness.projectDir, 'bin', 'hyprscope.ts')))
+      assert.ok(error.message.includes(join(harness.projectDir, 'dist', 'bin', 'hyprscope')))
       assert.match(error.message, /projectDir/)
+      assert.match(error.message, /bin\/hyprscope\.ts/)
+      assert.match(error.message, /bin\/hyprscope\.js/)
       return true
     },
   )

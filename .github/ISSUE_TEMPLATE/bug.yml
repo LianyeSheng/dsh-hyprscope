@@ -1,0 +1,67 @@
+name: Bug report / 缺陷报告
+description: Something in hyprscope or its DSH plugin did not behave as documented / hyprscope 或它的 DSH 插件没有按文档工作
+title: "[bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. / 感谢反馈。
+        Please paste text, not screenshots, for logs: the exact error code and the `--json` output are what make a bug reproducible.
+        / 日志请贴文本而不是截图：确切的错误码和 `--json` 输出才是能复现的关键。
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: What is affected / 影响面
+      options:
+        - label: The CLI (`hyprscope ...`) / 命令行
+        - label: The DSH plugin (`hyprscope_*` tools) / DSH 插件
+        - label: Observation, read-only (`state`, `screenshot`, `events`) / 只读观察
+        - label: Control (`hyprscope control ...`, consent card, plan execution) / 控制面
+        - label: Packaging or installation / 打包或安装
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened / 发生了什么
+      description: The command or tool call, the arguments, and the result. / 命令或工具调用、参数、结果。
+      placeholder: |
+        hyprscope screenshot --window-app foot --output /tmp/a.png
+        -> SCREENSHOT_FAILED: ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected / 你期望的结果
+      description: Quote the document or help text you relied on, if there is one. / 如果有依据，请引用对应的文档或帮助文本。
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: "`hyprscope doctor --json`"
+      description: Session discovery, compositor version and the control runtime. Remove anything private. / 会话发现、compositor 版本和控制运行时。请去掉隐私内容。
+      render: json
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and run artifacts / 日志与运行产物
+      description: |
+        For a control run, the `out/runs/<runId>/` directory (fault record, timeline) is the useful part.
+        / 控制运行的话，`out/runs/<runId>/`（故障记录、时间线）最有价值。
+      render: text
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment / 环境
+      description: Distribution, Hyprland version, Node version, how it was installed, DSH version. / 发行版、Hyprland 版本、Node 版本、安装方式、DSH 版本。
+      placeholder: "Arch, Hyprland 0.57.2, Node 22.18, npm i -g dsh-hyprscope@0.2.0, dsh 0.2.2"
+    validations:
+      required: true

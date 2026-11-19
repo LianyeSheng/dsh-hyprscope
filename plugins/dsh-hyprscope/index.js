@@ -22,7 +22,7 @@ import { randomBytes } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { messageDirectory, startDesktopMessageBridge } from './message.js'
 
@@ -106,11 +106,46 @@ const PROMPT_TEXT =
   + 'annotations, window metadata and speech transcripts are described in text, not drawn on the image, so read '
   + 'the card geometry instead of guessing from pixels.'
 
+/**
+ * Second prompt section: a feedback nudge.
+ *
+ * The callers of this bundle are agents, so the agent is the one who sees a
+ * rough edge first. The nudge stays out of the user's way on purpose: it asks
+ * for a silent reflection, and only surfaces when the user asks why something
+ * was slow or failed. Nothing here files an issue by itself.
+ */
+const FEEDBACK_PROMPT_TEXT =
+  'When a task that used the hyprscope_* tools ends, reflect once on how the tools behaved: did a call cost you '
+  + 'extra steps, return something you had to work around, or fail in a way its error did not explain? Keep that '
+  + 'reflection to yourself — bring it up only if the user asks why the work was slow or why something failed, or '
+  + 'asks for feedback. Then be concrete: the tool, the arguments, the error code and what you expected instead. '
+  + 'Mention that it can be filed at https://github.com/LianyeSheng/dsh-hyprscope/issues, which has a bug form and '
+  + 'a feature form. Do not open an issue yourself, and never put a screenshot of the user\'s desktop in a report '
+  + 'unless they agree.'
+
 const DEFAULT_TIMEOUT_MS = 30_000
 const DEFAULT_CONTROL_TIMEOUT_MS = 180_000
 const DEFAULT_MAX_OUTPUT_BYTES = 16 * 1024 * 1024
 const DEFAULT_MAX_RENDER_CHARS = 7_000
 const MIN_RENDER_CHARS = 64
+
+/**
+ * The CLI entry a spawned command must use.
+ *
+ * A checkout keeps its sources in `bin/hyprscope.ts` and Node runs that file
+ * directly; when it exists it wins, so a stale build never shadows a fresh edit.
+ * An installed package lives under `node_modules`, where Node refuses to strip
+ * types, so the emitted `dist/bin/hyprscope.js` is the only runnable entry.
+ *
+ * @param {string} projectDir Absolute path of the hyprscope package.
+ * @returns {string} Absolute path of the entry point to spawn.
+ */
+function resolveEntryPath(projectDir) {
+  const ts = join(projectDir, 'bin', 'hyprscope.ts')
+  const js = join(projectDir, 'dist', 'bin', 'hyprscope.js')
+  if (ts.split(sep).includes('node_modules')) return existsSync(js) ? js : ts
+  return existsSync(ts) ? ts : js
+}
 
 /** Register the six hyprscope tools, the optional prompt section and the desktop-message bridge. */
 export function apply(ctx, config = {}) {
@@ -203,6 +238,7 @@ function registerPrompt(ctx) {
     const fiber = ctx.inject(['systemPrompt'], (promptCtx) => {
       try {
         promptCtx.systemPrompt.section({ name: 'hyprscope', order: 3050, text: PROMPT_TEXT })
+        promptCtx.systemPrompt.section({ name: 'hyprscope-feedback', order: 3051, text: FEEDBACK_PROMPT_TEXT })
       } catch {
         // A duplicate section name or a disposed service is not an activation error.
       }
@@ -243,7 +279,7 @@ function resolveSettings(config) {
     : resolve(readNonEmptyString(raw.screenshotDir, 'config.screenshotDir', 'hyprscope tools'))
   const settings = {
     projectDir,
-    entryPath: join(projectDir, 'bin', 'hyprscope.ts'),
+    entryPath: resolveEntryPath(projectDir),
     nodeExecutable,
     timeoutMs: readConfigInteger(raw.timeoutMs, 'config.timeoutMs', 1, 24 * 60 * 60 * 1000, DEFAULT_TIMEOUT_MS),
     controlTimeoutMs: readConfigInteger(
@@ -410,7 +446,7 @@ function createObserveTool(runtime) {
       + 'workspaces, monitors, layers, cursor). Nothing here changes the desktop and no lease or baseline is involved. '
       + 'Long results are compacted; read the specific collection instead of re-reading state. Use the control tools '
       + 'only when a change is actually needed. The doctor result also carries pluginVersion (the loaded bundle\'s '
-      + 'package version) and cliPath (the resolved bin/hyprscope.ts it spawns), so a stale in-memory plugin is '
+      + 'package version) and cliPath (the resolved CLI entry it spawns), so a stale in-memory plugin is '
       + 'detectable: after editing the bundle, restart DSH and compare pluginVersion with the checkout.',
     parameters: parameters({
       kind: {
@@ -1026,7 +1062,8 @@ function runCli(runtime, argv, options) {
     if (!existsSync(settings.entryPath)) {
       fail(new Error(
         `hyprscope CLI not found at ${settings.entryPath}: point the plugin's projectDir config `
-        + `(or HYPRSCOPE_PROJECT_DIR) at the hyprscope repository root.`,
+        + `(or HYPRSCOPE_PROJECT_DIR) at the hyprscope repository root (bin/hyprscope.ts) `
+        + `or at the installed package (dist/bin/hyprscope.js).`,
       ))
       return
     }

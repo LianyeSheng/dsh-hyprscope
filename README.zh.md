@@ -2,11 +2,35 @@
 
 [English](/README.md) | 中文
 
-> **说明：** 本仓库的代码由 AI 生成，作者只负责项目设计和代码审查。
+![license](https://img.shields.io/badge/license-MIT-blue) ![node](https://img.shields.io/badge/node-%E2%89%A522-brightgreen) ![compositor](https://img.shields.io/badge/compositor-Hyprland-5ec8f2) ![DSH](https://img.shields.io/badge/DeepSeek%20Harness-plugin-4d6bfe)
 
-一个用于观察 Hyprland 桌面、并在同意门控下实施控制的 CLI 工具，外加一个原生、开箱即用的 DeepSeek Harness（DSH）插件。观察层只读：找会话、读窗口/工作区/监视器、截图、订阅事件。需要动手的时候另走一套控制租约：宿主同意之后 agent 才能接管，随时可以收回。
+**把 Hyprland 桌面交给 agent，但它每次动手都得先问。**
 
-它先解决一个具体问题：DSH 的进程常常不在图形会话里，`WAYLAND_DISPLAY`、`HYPRLAND_INSTANCE_SIGNATURE` 都是空的，既看不见桌面，也不知道该把请求发给哪个 compositor。hyprscope 负责找到会话，把状态整理成稳定的字段，方便以后接 DSH 的 CUA provider。
+一个用于观察 Hyprland 桌面、并在同意门控下实施控制的 CLI 工具，外加一个原生、开箱即用的 DeepSeek Harness（DSH）插件。观察是只读的；任何改动都要走租约：弹卡之前计划就已经冻结，卡片写明步骤和时间预算，整个执行受 TTL 和随时可用的收回快捷键约束，前提一旦不成立就交回一份故障记录，而不是蒙混过去。
+
+把桌面交给它有两种方式。让它直接在你的桌面上干活，每一个计划都要等你点头——或者给它一个自己的桌面：一个窗口里的嵌套 Hyprland，它在里面操作，你继续用你的。
+
+## 安装
+
+```sh
+# from the checkout (works today)
+git clone https://github.com/LianyeSheng/dsh-hyprscope
+cd dsh-hyprscope && pnpm install
+
+# from npm (one command, from the first release on)
+npm i -g dsh-hyprscope          # the CLI
+dsh plugin add dsh-hyprscope    # the DSH plugin: one package carries both
+```
+
+```sh
+hyprscope doctor                       # find the session, report what is observable
+hyprscope state --json                 # one snapshot in stable fields
+hyprscope screenshot --output shot.png # layout, monitor, region or a single window
+```
+
+在 DSH 里这个包提供六个工具：`hyprscope_observe`、`hyprscope_screenshot`、`hyprscope_events` 负责只读观察；`hyprscope_plan`、`hyprscope_baseline`、`hyprscope_desktop` 通过 `hyprscope control` 和它的同意卡改动桌面。控制还需要一份被接受的能力基线：`hyprscope control baseline --probe` 先测一次这台机器，再由你确认。
+
+只有 `bin/wl-inject`（指针和键盘）、`bin/wl-capture`（单窗口截图）和 `bin/wl-scratch`（探针自己的窗口）是原生 helper。会话发现、状态、事件和布局/监视器/区域截图不需要它们，`pnpm run build:helpers` 会把这台机器能编译的编译出来。
 
 项目只有一个入口、三组命令：`hyprscope` 负责只读观察，`hyprscope control` 是带同意门控的控制面，`hyprscope message` 驱动桌面提示条、输入框和标注面，把消息交给后台运行的 DSH Host。三者共用会话发现，但只读命令不会加载租约、执行器或桌面生命周期的代码，消息面同样一个都不加载，所有会改变桌面的命令都在 `control` 下面。
 
@@ -153,7 +177,7 @@ node bin/hyprscope.ts control run plans/live-terminal.json             # show th
 
 `plugins/dsh-hyprscope/` 是本项目原生、开箱即用的 DSH Host 插件组合包（bundle），把这些命令变成模型可调用的六个工具，DSH 会话不用再自己拼 `node bin/hyprscope.ts ... --json` 命令。`hyprscope_observe`、`hyprscope_screenshot` 和 `hyprscope_events` 只读桌面；`hyprscope_plan`、`hyprscope_baseline` 和 `hyprscope_desktop` 走 `hyprscope control`；一次计划运行就是同意步骤，也覆盖了以前单步动作的用法。观察不需要同意；改变桌面仍然要宿主在控制租约里同意，并且要有一份已验收的能力基线，插件没有加绕开它们的办法。会弹同意卡的工具还接受可选的 `language`（`zh` 或 `en`；省略即沿用中文默认）：`hyprscope_plan` 的 `run` 和 `hyprscope_baseline` 的 `probe`。
 
-在**插件**页选择**添加插件**，填入绝对目录 `/home/jw/workspace/dsh-hyprscope/plugins/dsh-hyprscope`；或者让 DSH 里的 agent 用 `plugin_manager` 的 `install_bundle` 装同一个目录。组合包只在 Linux 上加载，需要 checkout 和 Node 22 与 DSH 在同一台机器上。除了六个工具，它还会在 DSH 后台运行时启动桌面消息提示条，并接收快捷键发来的消息。完整的工具面、配置键和限制在 [docs/plugin/DSH-PLUGIN.zh.md](/docs/plugin/DSH-PLUGIN.zh.md)。
+从 registry 装：`dsh plugin add dsh-hyprscope`；也可以在**插件**页选择**添加插件**，填入 checkout 目录或绝对目录 `/home/jw/workspace/dsh-hyprscope/plugins/dsh-hyprscope`，或者让 DSH 里的 agent 用 `plugin_manager` 的 `install_bundle` 装其中一个。组合包只在 Linux 上加载，需要 Node 22 与 DSH 在同一台机器上；它从 checkout 里跑 `bin/hyprscope.ts`，从安装好的包里跑编译好的 `dist/bin/hyprscope.js`（Node 不允许在 `node_modules` 下剥离类型）。除了六个工具，它还会在 DSH 后台运行时启动桌面提示条，并让快捷键送进来一条消息或一张标注过的截图。完整的工具面、配置键和限制在 [docs/plugin/DSH-PLUGIN.zh.md](/docs/plugin/DSH-PLUGIN.zh.md)。
 
 ## 为什么会话要自己找
 
@@ -180,3 +204,7 @@ agent 桌面——给 agent 一个自己的嵌套 Hyprland——已经实现；�
 - 锁状态是尽力而为：只读 logind 的 `LockedHint`，`locked: null` 只说明没有证据，不等于会话已解锁。
 - 同机跑多个 Hyprland 时默认按日志新旧挑一个，不确认它是否还响应，最好显式传 `--signature`。
 - 其余字段跟着 Hyprland 版本走，版本敏感点和字段定义看 [docs/cli/PROTOCOL.zh.md](/docs/cli/PROTOCOL.zh.md)，脚本请依赖 `--json`。
+
+## 关于这个项目
+
+本仓库的代码由 AI 生成，作者只负责项目设计和代码审查。真机验证记录在 [docs/VERIFICATION.zh.md](/docs/VERIFICATION.zh.md)：测了什么、在哪个 compositor 版本上测的、什么仍然未知。

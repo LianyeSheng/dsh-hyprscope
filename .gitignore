@@ -1,5 +1,6 @@
 node_modules/
 bin/wl-globals
+dist/
 out/
 .tmp/
 .pnpm-store/

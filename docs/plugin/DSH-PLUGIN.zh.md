@@ -37,12 +37,12 @@ hyprscope_desktop     -> node bin/hyprscope.ts control desktop <action> --json
 有三个前提：
 
 - DSH Host 和 Hyprland 会话跑在同一台机器、同一个用户下。CLI 通过该用户的运行时目录发现会话，但跨不过不同的 uid，也跨不过容器边界。
-- 运行 DSH Host 的 Node 是 22 或更新的版本（插件默认就用这个可执行文件），并且 checkout 里有 `bin/hyprscope.ts`。插件从这份 checkout 运行 CLI，不安装依赖，也不编译 C helper。
+- 运行 DSH Host 的 Node 是 22 或更新的版本（插件默认就用这个可执行文件），并且包根目录里有可运行的入口：checkout 里是 `bin/hyprscope.ts`，npm 安装的包里是编译出来的 `dist/bin/hyprscope.js`（Node 不允许在 `node_modules` 下剥离类型）。插件从这个包根目录运行 CLI，不安装依赖，也不编译 C helper。
 - 组合包声明了 `dsh.bundle.platforms: ["linux"]`，所以 DSH 在别的 Host 平台上会拒绝加载它。Hyprland 本来就是 Wayland compositor，这条限制实际不构成麻烦。
 
 装好后，这个 profile 的会话里就能用到这些工具。想先确认安装是否生效，调用一次 `hyprscope_observe`，`kind: "doctor"`：它跑的是只读的能力报告。如果组合包找不到 CLI，插件仍然能激活，只是这次调用会失败，错误信息里会点名 `projectDir`。
 
-`doctor` 还会说明当前加载的是哪份代码。除了 CLI 的报告，结果还带两个新增的顶层字段：`pluginVersion` 是 Host 加载插件时从组合包 `package.json` 读到的 `version`，`cliPath` 是插件实际启动的 `bin/hyprscope.ts` 绝对路径。把 `pluginVersion` 和 checkout 里的 `plugins/dsh-hyprscope/package.json` 对比，把 `cliPath` 和预期的 checkout 对比；对不上就说明 Host 还在跑内存里的旧副本。
+`doctor` 还会说明当前加载的是哪份代码。除了 CLI 的报告，结果还带两个新增的顶层字段：`pluginVersion` 是 Host 加载插件时从组合包 `package.json` 读到的 `version`，`cliPath` 是插件实际启动的入口绝对路径（checkout 里是 `bin/hyprscope.ts`，安装包里是 `dist/bin/hyprscope.js`）。把 `pluginVersion` 和包里 `plugins/dsh-hyprscope/package.json` 的 `version` 对比，把 `cliPath` 和预期的包根目录对比；对不上就说明 Host 还在跑内存里的旧副本。
 
 ## 编辑组合包
 
@@ -137,6 +137,14 @@ hyprscope_screenshot(scope: "layout", output: "/tmp/hyprscope-card.png")
 - 状态目录只读（`EROFS`）：当前 `XDG_STATE_HOME` 下写不了租约和基线文件。在 DSH Host 的环境里把它指向可写目录，然后重启 DSH。已验收的基线存在真实的状态目录里（`$XDG_STATE_HOME/hyprscope/baseline.json`，默认 `~/.local/state/hyprscope`），换目录并不能替代那个文件。
 - 用法错误或未知命令：调用 `hyprscope_observe`，`kind: "doctor"`，查看当前加载的接线，包括 `pluginVersion` 和 `cliPath`；如果组合包改过，重启 DSH，让新 schema 取代旧的那份。
 
+## 来自 agent 的反馈
+
+这个组合包的使用者是 agent，所以粗糙的地方往往是 agent 先遇到。为此多了一段很短的提示词：用过这些工具的任务结束时，agent 回顾一次工具的表现——哪一步让它多绕了路、哪条错误的文案没解释清楚原因、哪个谓词只能靠猜。这段回顾默认不说出口：只有用户问起"为什么这么慢"或"为什么失败了"，或者主动要反馈时，才讲出来。
+
+报告要具体才有用，所以提示词要求给出工具名、参数、错误码和它本来期望的结果，并指向仓库的两个 issue 表单（缺陷报告和功能建议，都是中英双语）。有两件事刻意不交给 agent：不许自己开 issue，也不许在未经用户同意时附上用户桌面的截图。
+
+`hyprscope -h` 为 CLI 留了同一条路径：退出码、错误码和 `hyprscope doctor --json` 才让一份报告可复现。
+
 ## 配置
 
 组合包放在当前 checkout 里时不需要配置。它会在插件激活时解析这些键，来源是插件行的 `config`。要改的话，在 profile 自己的 patch 层里覆盖 `hyprscope` 这一行（`$DSH_HOME/profiles/<name>/cordis.patch.yml`；整行覆盖会替换整个 `config`）：
@@ -150,7 +158,7 @@ hyprscope_screenshot(scope: "layout", output: "/tmp/hyprscope-card.png")
 
 | 键 | 默认值 | 含义 |
 |---|---|---|
-| `projectDir` | 仓库根目录，从组合包往上两级；回退值是 `HYPRSCOPE_PROJECT_DIR` | 包含 `bin/hyprscope.ts` 的 checkout |
+| `projectDir` | 仓库根目录，从组合包往上两级；回退值是 `HYPRSCOPE_PROJECT_DIR` | 包含 `bin/hyprscope.ts` 的 checkout，或包含 `dist/bin/hyprscope.js` 的安装包 |
 | `nodeExecutable` | `process.execPath` | 用来运行 CLI 的 Node 可执行文件 |
 | `timeoutMs` | `30000` | 观察和状态查询的超时，单位毫秒 |
 | `controlTimeoutMs` | `180000` | 同意、控制和计划调用的超时，单位毫秒 |
@@ -188,7 +196,7 @@ hyprscope_screenshot(scope: "layout", output: "/tmp/hyprscope-card.png")
 - **每次调用一个进程。** 一次调用要启动 Node、加载 CLI、重新发现会话再退出。门控因此完整、结果因此诚实，但每次都要付出进程启动和会话发现的时间，而且没有批处理，也不保持常驻。一份计划是一次调用；把同样的步骤拆成多次工具调用只会更慢，并不更安全。
 - **events 是有界等待，不是订阅。** `hyprscope_events` 会一直占着这次调用，直到满足 `count` 或 `once`，或者 `timeoutMs` 到期；等待超时算成功，结果是 `timedOut: true`，不是错误。DSH 会话不能用它持续盯着桌面。
 - **结果会被压缩。** 模型读到的文本受 `maxRenderChars` 限制：超长的列表只剩前几项加 `total` 和 `omitted`，`doctor` 的渲染会去掉 `capabilities.wayland.globals`，过大的 state 会退化成摘要。供程序调用的解析值保留 CLI 的 JSON，但只读文本的模型可能漏掉字段；列表重要时换一个更窄的 `kind`。
-- **它包装的是 checkout，不是发行版。** 工具运行的是这个仓库的 `bin/hyprscope.ts`，依赖它的 `--json` 输出形状。仓库目录不能挪位置，CLI 一改，工具返回的内容也可能跟着变。它也不负责编译 C helper：需要注入的计划仍然需要 `bin/wl-inject`，能力基线探针仍然需要 `bin/wl-scratch`，截取单个窗口还需要 `pnpm run build:capture` 生成的 `bin/wl-capture`（前两个见 [README.zh.md](/README.zh.md) 的快速开始）。
+- **它包装的是这个包，不是冻结的 API。** 工具运行的是包里的 CLI 入口——checkout 里是 `bin/hyprscope.ts`，安装好的包里是 `dist/bin/hyprscope.js`——并依赖它的 `--json` 输出形状。这个包不能挪位置，CLI 一改，工具返回的内容也可能跟着变。它也不负责编译 C helper：需要注入的计划仍然需要 `bin/wl-inject`，能力基线探针仍然需要 `bin/wl-scratch`，截取单个窗口还需要 `pnpm run build:capture` 生成的 `bin/wl-capture`（前两个见 [README.zh.md](/README.zh.md) 的快速开始）。
 - **图片要模型路由支持。** 只有会话挂载了附件存储、并且被路由到的模型声明接受图片输入时，截图工具才会把 PNG 挂到结果上。没有存储、纯文本路由、路由无法解析或保存失败时，结果仍然带着路径、大小和哈希，并附一条 `imageError` 说明；截图本身照常成功。
 - **不含 CUA provider。** 这个组合包给模型的是工具；把同样的操作接进 DSH 的 CUA provider 属于以后的工作，不在这个插件里。
 - **桌面两条桥都不增加控制路径。** 它们只启动 `hyprscope message ...` 和只读的 `screenshot`，从不调用 `hyprscope control`；通过 Host 的 `sessionController.prompt` 以普通用户消息注入，从不回答卡片，不拿租约，也不改桌面状态。

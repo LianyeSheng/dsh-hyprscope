@@ -1,19 +1,20 @@
 /** `hyprscope control` command line: ask for control, hold it, and give it back. */
-import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Readable } from 'node:stream'
 import { ErrorCode, HyprscopeError } from '../errors.ts'
-import { resolveLanguage } from '../i18n.ts'
+import { resolveLanguage, type RenderLanguage } from '../i18n.ts'
 import { hashDesktopConfig } from '../desktop/config.ts'
 import { readDesktopRecord } from '../desktop/record.ts'
 import { parseDesktopTarget, resolveTarget } from '../desktop/target.ts'
 import type { DesktopTarget, ResolvedTarget } from '../desktop/types.ts'
 import type { DesktopStatusReport } from '../desktop/lifecycle.ts'
+import type { BaselineProbeReport } from './baseline.ts'
 import { installBind, uninstallBind } from './bind.ts'
 import { leaseStatus, releaseLease } from './control.ts'
+import { readPackageVersion } from '../paths.ts'
 import { PLAN_LIMITS, planTextString } from '../plan/model.ts'
 
-const VERSION = (JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as { version: string }).version
+const VERSION = readPackageVersion()
 
 const USAGE = `hyprscope control — ask the host for desktop control, then give it back
 
@@ -216,6 +217,12 @@ function renderDesktopStatus(report: DesktopStatusReport): string {
     lines.push(`runtime: ${report.runtimeDir}${report.waylandDisplay === null ? '' : ` · ${report.waylandDisplay}`}`)
   }
   lines.push(`baseline: ${report.baseline.present ? report.baseline.state ?? 'present' : 'none'} · ${report.baseline.file}`)
+  // A desktop got its own compositor instance at start, so it also got its own
+  // baseline. Say what to run next instead of letting the first control call
+  // fail with CAPABILITY.
+  if (!report.baseline.present && report.target !== null) {
+    lines.push(`next: hyprscope control baseline --probe --desktop ${report.target}`)
+  }
   if (report.configHash !== null) lines.push(`config: sha256 ${report.configHash.slice(0, 12)}`)
   if (report.detail !== null) lines.push(`detail: ${report.detail}`)
   return lines.join('\n')
@@ -298,6 +305,90 @@ function fail(io: Io, error: unknown, json: boolean): number {
     io.stderr.write(`hyprscope: ${failure.code}: ${failure.message}\n`)
   }
   return failure.code === ErrorCode.USAGE ? 2 : 1
+}
+
+/**
+ * Measure one target desktop and accept the result when it widens.
+ *
+ * A generated desktop only measures what it is running: editing a snippet
+ * changes the files but not the compositor, so a probe here would attest a
+ * configuration that is not in effect. The probe checks the failsafe bind by
+ * reading the Lua config and the bind list; inside the generated desktop both
+ * are the desktop's own, not the user's ~/.config/hypr.
+ *
+ * A widening result is this command's request: the same process shows the
+ * host's confirmation card and continues with the answer, so no separate CLI
+ * entry can accept a draft on the host's behalf. Inside an agent or external
+ * desktop both the probe lease and the acceptance are programmatic — the
+ * desktop boundary already carries that consent.
+ * @param options Parsed control options.
+ * @param target Desktop the measurement belongs to.
+ * @param lang Language of a confirmation card.
+ * @returns Probe report, with the accepted baseline when it was accepted.
+ */
+async function probeTargetBaseline(
+  options: LeaseCliOptions,
+  target: DesktopTarget,
+  lang: RenderLanguage,
+): Promise<BaselineProbeReport> {
+  const { acceptBaseline, probeBaseline } = await import('./baseline.ts')
+  const resolved = await resolveFor(options, target)
+  const liveHash = await liveConfigHash(resolved)
+  if (resolved.desktop !== null && resolved.desktop.configDir !== '') {
+    if (liveHash === null) {
+      throw new HyprscopeError(ErrorCode.DESKTOP_FAILED,
+        'The desktop configuration could not be read; stop and start the desktop before probing it',
+        { configDir: resolved.desktop.configDir })
+    }
+    if (resolved.desktop.configHash !== null && liveHash !== resolved.desktop.configHash) {
+      throw new HyprscopeError(ErrorCode.DESKTOP_FAILED,
+        'The desktop configuration changed since it started; stop and start the desktop before probing it',
+        { recorded: resolved.desktop.configHash, observed: liveHash })
+    }
+  }
+  const probeEnv = target === 'agent' && resolved.desktop !== null
+    ? { ...resolved.env, HYPR_CONFIG_DIR: join(resolved.desktop.configDir, 'hypr') }
+    : resolved.env
+  let report = await probeBaseline({
+    consentMs: options.consentSec === undefined ? undefined : options.consentSec * 1000,
+    readOnly: options.readOnly === true,
+    signature: resolved.baselineSignature,
+    target,
+    session: resolved.session,
+    configHash: liveHash,
+    consent: target === 'user' ? 'card' : 'programmatic',
+    env: probeEnv,
+    lang,
+  })
+  if (report.applied === 'pending') {
+    try {
+      const accepted = await acceptBaseline({
+        signature: resolved.baselineSignature,
+        target,
+        lang,
+        consentMs: options.consentSec === undefined ? undefined : options.consentSec * 1000,
+      })
+      report = {
+        ...report,
+        applied: 'accepted',
+        path: accepted.path,
+        state: accepted.state,
+        accept: accepted,
+        confirmation: { approved: true, phase: 'released', source: accepted.source },
+      }
+    } catch (error) {
+      if (!(error instanceof HyprscopeError) || error.code !== ErrorCode.DENIED) throw error
+      report = {
+        ...report,
+        confirmation: {
+          approved: false,
+          phase: typeof error.details.phase === 'string' ? error.details.phase : 'denied',
+          source: typeof error.details.source === 'string' ? error.details.source : 'overlay',
+        },
+      }
+    }
+  }
+  return report
 }
 
 /**
@@ -444,71 +535,7 @@ export async function main(argv: string[], io: Io = { stdout: process.stdout, st
         const target = targetOf(options)
         const lang = resolveLanguage(options.lang)
         if (action === 'probe') {
-          const resolved = await resolveFor(options, target)
-          const liveHash = await liveConfigHash(resolved)
-          // A generated desktop only measures what it is running. Editing a
-          // snippet changes the files but not the compositor, so a probe now
-          // would attest a configuration that is not in effect.
-          if (resolved.desktop !== null && resolved.desktop.configDir !== '') {
-            if (liveHash === null) {
-              throw new HyprscopeError(ErrorCode.DESKTOP_FAILED,
-                'The desktop configuration could not be read; stop and start the desktop before probing it',
-                { configDir: resolved.desktop.configDir })
-            }
-            if (resolved.desktop.configHash !== null && liveHash !== resolved.desktop.configHash) {
-              throw new HyprscopeError(ErrorCode.DESKTOP_FAILED,
-                'The desktop configuration changed since it started; stop and start the desktop before probing it',
-                { recorded: resolved.desktop.configHash, observed: liveHash })
-            }
-          }
-          // The probe checks the failsafe bind by reading the Lua config and the
-          // bind list. Inside the generated desktop both are the desktop's own,
-          // not the user's ~/.config/hypr.
-          const probeEnv = target === 'agent' && resolved.desktop !== null
-            ? { ...resolved.env, HYPR_CONFIG_DIR: join(resolved.desktop.configDir, 'hypr') }
-            : resolved.env
-          let report = await probeBaseline({
-            consentMs: options.consentSec === undefined ? undefined : options.consentSec * 1000,
-            readOnly: options.readOnly === true,
-            signature: resolved.baselineSignature,
-            target,
-            session: resolved.session,
-            configHash: liveHash,
-            consent: target === 'user' ? 'card' : 'programmatic',
-            env: probeEnv,
-            lang,
-          })
-          // A widening result is this command's request: the same process shows
-          // the host's confirmation card and continues with the answer, so no
-          // separate CLI entry can accept a draft on the host's behalf.
-          if (report.applied === 'pending') {
-            try {
-              const accepted = await acceptBaseline({
-                signature: resolved.baselineSignature,
-                target,
-                lang,
-                consentMs: options.consentSec === undefined ? undefined : options.consentSec * 1000,
-              })
-              report = {
-                ...report,
-                applied: 'accepted',
-                path: accepted.path,
-                state: accepted.state,
-                accept: accepted,
-                confirmation: { approved: true, phase: 'released', source: accepted.source },
-              }
-            } catch (error) {
-              if (!(error instanceof HyprscopeError) || error.code !== ErrorCode.DENIED) throw error
-              report = {
-                ...report,
-                confirmation: {
-                  approved: false,
-                  phase: typeof error.details.phase === 'string' ? error.details.phase : 'denied',
-                  source: typeof error.details.source === 'string' ? error.details.source : 'overlay',
-                },
-              }
-            }
-          }
+          const report = await probeTargetBaseline(options, target, lang)
           print(io, report, options.json, renderBaselineProbe)
           return 0
         }
@@ -529,8 +556,25 @@ export async function main(argv: string[], io: Io = { stdout: process.stdout, st
             throw usage('desktop start creates an agent desktop; omit --desktop')
           }
           const report = await startDesktop({ size: options.size, consent, env: process.env })
-          print(io, report, options.json, renderDesktopStatus)
-          return report.state === 'running' ? 0 : 1
+          // A fresh desktop is a new compositor instance, so its baseline slot is
+          // empty too. Measuring it here consumes the consent the host just gave
+          // by starting the desktop — inside it every probe is programmatic —
+          // and that is what keeps the whole flow at one click. Without it the
+          // first control call fails with CAPABILITY and asks for a second step.
+          let measured = report
+          if (report.state === 'running' && report.target === 'agent') {
+            try {
+              await probeTargetBaseline(
+                { ...options, desktop: 'agent', probe: true }, 'agent', resolveLanguage(options.lang),
+              )
+            } catch (error) {
+              io.stderr.write(`hyprscope: the new desktop was started but could not be measured: `
+                + `${error instanceof Error ? error.message : String(error)}\n`)
+            }
+            measured = await statusDesktop(process.env)
+          }
+          print(io, measured, options.json, renderDesktopStatus)
+          return measured.state === 'running' ? 0 : 1
         }
         if (action === 'status') {
           print(io, await statusDesktop(process.env), options.json, renderDesktopStatus)

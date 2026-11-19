@@ -1,5 +1,6 @@
 /** Lease lifecycle: request, consent, hold, release, and stale cleanup. */
 import { spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { ErrorCode, HyprscopeError } from '../errors.ts'
 import type { RenderLanguage } from '../i18n.ts'
@@ -481,7 +482,9 @@ async function waitForDecision(
  * @returns Absolute path of the internal detached-holder entry module.
  */
 export function holderEntry(): string {
-  return fileURLToPath(new URL('./hold-entry.ts', import.meta.url))
+  const source = fileURLToPath(new URL('./hold-entry.ts', import.meta.url))
+  // A checkout runs the source; the emitted tree beside it has only the .js.
+  return existsSync(source) ? source : fileURLToPath(new URL('./hold-entry.js', import.meta.url))
 }
 
 /**

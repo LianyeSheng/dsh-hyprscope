@@ -58,6 +58,9 @@ jobs:
       - run:
           name: Build the window capture helper
           command: bash tools/capture/build.sh
+      - run:
+          name: Build every helper through the published script
+          command: bash scripts/build-helpers.sh --strict
 
 workflows:
   verify:

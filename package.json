@@ -1,13 +1,70 @@
 {
   "name": "dsh-hyprscope",
   "version": "0.2.0",
-  "private": true,
-  "description": "A CLI tool for Hyprland desktop observation and consent-gated control, plus a native, plug-and-play plugin for DeepSeek Harness (DSH).",
+  "description": "Hyprland desktop observation and consent-gated control, plus a native, plug-and-play plugin for DeepSeek Harness (DSH).",
   "type": "module",
   "packageManager": "pnpm@12.20.0",
   "bin": {
-    "hyprscope": "./bin/hyprscope.ts"
+    "hyprscope": "./dist/bin/hyprscope.js"
   },
+  "main": "./plugins/dsh-hyprscope/index.js",
+  "exports": {
+    ".": "./plugins/dsh-hyprscope/index.js",
+    "./plugin": "./plugins/dsh-hyprscope/index.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./plugins/dsh-hyprscope/cordis.patch.yml"
+    }
+  },
+  "files": [
+    "dist",
+    "bin/hyprscope.ts",
+    "src",
+    "overlay",
+    "plugins/dsh-hyprscope/index.js",
+    "plugins/dsh-hyprscope/message.js",
+    "plugins/dsh-hyprscope/annotate.js",
+    "plugins/dsh-hyprscope/voice.js",
+    "plugins/dsh-hyprscope/cordis.patch.yml",
+    "plugins/dsh-hyprscope/package.json",
+    "plugins/dsh-hyprscope/locale",
+    "plugins/dsh-hyprscope/icon.svg",
+    "probe/wl-globals.c",
+    "probe/wl-scratch.c",
+    "tools/inject/build.sh",
+    "tools/inject/wl-inject.c",
+    "tools/inject/*.h",
+    "tools/inject/protocol",
+    "tools/capture/build.sh",
+    "tools/capture/wl-capture.c",
+    "tools/capture/protocol",
+    "tools/scratch/build.sh",
+    "scripts/build-helpers.sh"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LianyeSheng/dsh-hyprscope.git"
+  },
+  "homepage": "https://github.com/LianyeSheng/dsh-hyprscope#readme",
+  "bugs": {
+    "url": "https://github.com/LianyeSheng/dsh-hyprscope/issues"
+  },
+  "keywords": [
+    "hyprland",
+    "wayland",
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "computer-use",
+    "ai-agent",
+    "desktop-automation",
+    "cli"
+  ],
   "scripts": {
     "test": "node --test test/*.test.ts plugins/dsh-hyprscope/test/*.test.js",
     "check": "PYTHONDONTWRITEBYTECODE=1 python3 .agents/se/scripts/docs/verify_translation_pairing.py && pnpm run typecheck && pnpm test",
@@ -15,11 +72,18 @@
     "ci:local": "bash scripts/ci-local.sh",
     "hooks:install": "bash scripts/install-git-hooks.sh",
     "doctor": "node ./bin/hyprscope.ts doctor",
+    "build": "tsc -p tsconfig.build.json",
     "build:probe": "gcc -O2 -o bin/wl-globals probe/wl-globals.c $(pkg-config --cflags --libs wayland-client)",
     "typecheck": "tsc --noEmit",
     "build:inject": "bash tools/inject/build.sh",
     "build:scratch": "bash tools/scratch/build.sh",
-    "build:capture": "bash tools/capture/build.sh"
+    "build:capture": "bash tools/capture/build.sh",
+    "build:helpers": "bash scripts/build-helpers.sh",
+    "pack:check": "node scripts/pack-check.ts",
+    "prepack": "pnpm run build",
+    "prepublishOnly": "pnpm run typecheck && pnpm test",
+    "clean:dist": "node scripts/clean-dist.ts",
+    "postpack": "pnpm run clean:dist"
   },
   "engines": {
     "node": ">=22"

@@ -6,7 +6,9 @@
  * step's whole input batch travels through a single connection.
  */
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { join } from 'node:path'
 import { ErrorCode, HyprscopeError } from '../errors.ts'
+import { binDir } from '../paths.ts'
 import type { Session } from '../types.ts'
 
 /** One input command understood by the helper. */
@@ -64,7 +66,7 @@ interface Pending {
 
 /** Default helper location inside the checkout. */
 export function defaultInjectorBinary(): string {
-  return new URL('../../bin/wl-inject', import.meta.url).pathname
+  return join(binDir(), 'wl-inject')
 }
 
 /** Serializing client for one helper process. */

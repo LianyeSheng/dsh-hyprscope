@@ -1,0 +1,165 @@
+{
+  "version": 1,
+  "id": "demo-browser",
+  "reason": {
+    "zh": "演示：用键盘在浏览器里打开项目主页、滚动到 README，然后截图留证",
+    "en": "Demo: drive the browser to the project page, scroll it, and capture the proof"
+  },
+  "summary": {
+    "zh": "聚焦浏览器，新开标签页，输入地址，回车，等页面加载，向下滚动，最后截取整个窗口",
+    "en": "Focus the browser, open a tab, type the address, press Return, wait for the page, scroll, then capture the window"
+  },
+  "budgetMs": 20000,
+  "settleMs": 800,
+  "steps": [
+    {
+      "op": "focusWindow",
+      "target": {
+        "app": "zen"
+      },
+      "requires": [
+        {
+          "kind": "window.exists",
+          "target": {
+            "app": "zen"
+          }
+        },
+        {
+          "kind": "window.geometry",
+          "target": {
+            "app": "zen"
+          }
+        }
+      ],
+      "expect": [
+        {
+          "kind": "window.focused",
+          "target": {
+            "app": "zen"
+          }
+        }
+      ]
+    },
+    {
+      "op": "chord",
+      "keys": [
+        "CTRL",
+        "t"
+      ],
+      "requires": [
+        {
+          "kind": "window.focused",
+          "target": {
+            "app": "zen"
+          }
+        }
+      ],
+      "expect": [
+        {
+          "kind": "region.changed",
+          "target": {
+            "app": "zen"
+          },
+          "rect": [
+            0.02,
+            0.1,
+            0.96,
+            0.8
+          ]
+        }
+      ]
+    },
+    {
+      "op": "text",
+      "text": "github.com/LianyeSheng/dsh-hyprscope",
+      "requires": [
+        {
+          "kind": "window.focused",
+          "target": {
+            "app": "zen"
+          }
+        }
+      ],
+      "expect": [
+        {
+          "kind": "region.changed",
+          "target": {
+            "app": "zen"
+          },
+          "rect": [
+            0,
+            0,
+            0.95,
+            0.18
+          ]
+        }
+      ]
+    },
+    {
+      "op": "chord",
+      "keys": [
+        "Return"
+      ],
+      "requires": [
+        {
+          "kind": "window.focused",
+          "target": {
+            "app": "zen"
+          }
+        }
+      ],
+      "expect": [
+        {
+          "kind": "region.changed",
+          "target": {
+            "app": "zen"
+          },
+          "rect": [
+            0.02,
+            0.1,
+            0.96,
+            0.8
+          ]
+        }
+      ]
+    },
+    {
+      "op": "pause",
+      "ms": 1000
+    },
+    {
+      "op": "scroll",
+      "value": 3,
+      "axis": "vertical",
+      "requires": [
+        {
+          "kind": "window.focused",
+          "target": {
+            "app": "zen"
+          }
+        }
+      ],
+      "expect": [
+        {
+          "kind": "region.changed",
+          "target": {
+            "app": "zen"
+          },
+          "rect": [
+            0.02,
+            0.1,
+            0.96,
+            0.8
+          ]
+        }
+      ]
+    },
+    {
+      "op": "screenshot",
+      "label": "browser",
+      "window": {
+        "app": "zen"
+      }
+    }
+  ]
+}

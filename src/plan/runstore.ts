@@ -1,6 +1,7 @@
 /** Run artifacts: the approved plan, an append-only timeline, screenshots, and the final result. */
 import { appendFile, mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { packageRoot } from '../paths.ts'
 import { canonicalJson } from './canonical.ts'
 import type { Plan } from './model.ts'
 
@@ -18,7 +19,7 @@ export interface TimelineEntry {
  * @returns Absolute directory path.
  */
 export function defaultRunRoot(env: NodeJS.ProcessEnv = process.env): string {
-  return env.HYPRSCOPE_RUN_DIR ?? new URL('../../out/runs', import.meta.url).pathname
+  return env.HYPRSCOPE_RUN_DIR ?? join(packageRoot(), 'out', 'runs')
 }
 
 /**

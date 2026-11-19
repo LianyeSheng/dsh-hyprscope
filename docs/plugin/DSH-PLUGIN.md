@@ -37,12 +37,12 @@ The install is the link. In a development checkout the web profile keeps it at `
 Three requirements have to hold:
 
 - The DSH Host runs as the same user, on the same machine, as the Hyprland session. The CLI finds the session through the per-user runtime directory, but it cannot cross a different uid or a container boundary.
-- The Node running the DSH Host is version 22 or newer (the plugin defaults to that executable), and the checkout contains `bin/hyprscope.ts`. The plugin runs the CLI from this checkout; it installs no dependencies and builds no C helpers.
+- The Node running the DSH Host is version 22 or newer (the plugin defaults to that executable), and the package root holds a runnable entry: `bin/hyprscope.ts` in a checkout, or the emitted `dist/bin/hyprscope.js` in an npm-installed package, because Node refuses to strip types under `node_modules`. The plugin runs the CLI from that package root; it installs no dependencies and builds no C helpers.
 - The bundle declares `dsh.bundle.platforms: ["linux"]`, so DSH refuses to activate it on another Host platform. Hyprland is a Wayland compositor, so this is not a practical restriction.
 
 After installation, the tools are available to sessions of that profile. To check the wiring, call `hyprscope_observe` with `kind: "doctor"`: it runs the read-only capability report. If the bundle cannot find the CLI, the plugin still activates, and the call fails with a message that names `projectDir`.
 
-`doctor` also shows which code is loaded. Besides the CLI's report, the result carries two additive top-level fields: `pluginVersion`, the `version` in the bundle's `package.json` read when the Host loaded the plugin, and `cliPath`, the absolute `bin/hyprscope.ts` the plugin spawns. Compare `pluginVersion` with the checkout's `plugins/dsh-hyprscope/package.json` and `cliPath` with the checkout you expect; a mismatch means the Host is running an older in-memory copy.
+`doctor` also shows which code is loaded. Besides the CLI's report, the result carries two additive top-level fields: `pluginVersion`, the `version` in the bundle's `package.json` read when the Host loaded the plugin, and `cliPath`, the absolute entry the plugin spawns (`bin/hyprscope.ts` from a checkout, `dist/bin/hyprscope.js` from an installed package). Compare `pluginVersion` with the `version` in the package's `plugins/dsh-hyprscope/package.json` and `cliPath` with the package root you expect; a mismatch means the Host is running an older in-memory copy.
 
 ## Editing the bundle
 
@@ -137,6 +137,14 @@ A failed tool call keeps the CLI's stable error code and, for these known causes
 - A read-only state directory (`EROFS`): the lease and baseline files cannot be written under the current `XDG_STATE_HOME`. Point it at a writable directory in the DSH Host environment and restart DSH. The accepted baseline lives in the real state home (`$XDG_STATE_HOME/hyprscope/baseline.json`, default `~/.local/state/hyprscope`), so an override is not a substitute for that file.
 - A usage or unknown-command failure: run `hyprscope_observe` with `kind: "doctor"` to inspect the loaded wiring, including `pluginVersion` and `cliPath`; if the bundle was edited, restart DSH so the new schema replaces the stale one.
 
+## Feedback from the agent
+
+The callers of this bundle are agents, so an agent is usually the first to notice a rough edge. A second, short prompt section exists for that: when a task that used the tools ends, the agent reflects once on how the calls behaved — a step it had to work around, an error whose text did not explain the failure, a predicate it had to guess. The reflection stays silent by design: it is reported only when the user asks why the work was slow or why something failed, or asks for feedback.
+
+A report is useful only when it is concrete, so the prompt asks for the tool, the arguments, the error code and what the agent expected instead, and points at the repository's two issue forms (a bug report and a feature request, both bilingual). Two things are deliberately not delegated to the agent: it must not open an issue on its own, and it must not attach a screenshot of the user's desktop unless the user agrees.
+
+`hyprscope -h` carries the same route for the CLI: the exit code, the error code and `hyprscope doctor --json` are what make a report reproducible.
+
 ## Configuration
 
 The bundle needs no configuration when it sits in this checkout. It resolves these keys when the plugin activates, and it reads them from the plugin row's `config`. To change one, override the `hyprscope` row in the profile's own patch layer (`$DSH_HOME/profiles/<name>/cordis.patch.yml`; a row override replaces the whole `config`):
@@ -150,7 +158,7 @@ The bundle needs no configuration when it sits in this checkout. It resolves the
 
 | Key | Default | Meaning |
 |---|---|---|
-| `projectDir` | the repository root, two levels above the bundle; `HYPRSCOPE_PROJECT_DIR` is the fallback | Checkout that contains `bin/hyprscope.ts` |
+| `projectDir` | the repository root, two levels above the bundle; `HYPRSCOPE_PROJECT_DIR` is the fallback | Checkout that contains `bin/hyprscope.ts`, or an installed package that contains `dist/bin/hyprscope.js` |
 | `nodeExecutable` | `process.execPath` | Node binary used to run the CLI |
 | `timeoutMs` | `30000` | Timeout for observation and status calls, in milliseconds |
 | `controlTimeoutMs` | `180000` | Timeout for consent, control and plan calls, in milliseconds |
@@ -188,7 +196,7 @@ The plugin adds tools; it adds no permission. Everything it can do is one of the
 - **One process per call.** A call starts Node, loads the CLI, rediscovers the session and exits. That is what keeps the gate intact and the result honest, but it costs the process startup and discovery time on every call, and nothing is batched or kept warm. A plan is one call; issuing the same steps as separate tool calls is slower and no safer.
 - **Events is a bounded wait, not a subscription.** `hyprscope_events` keeps the call open until `count` or `once` is satisfied or `timeoutMs` runs out; an expired wait is a success with `timedOut: true`, not an error. A DSH session cannot use it to watch the desktop continuously.
 - **Results are compacted.** The text a model reads is capped at `maxRenderChars`: a long list is reduced to the leading items plus `total` and `omitted`, the `doctor` view drops `capabilities.wayland.globals`, and an oversized state falls back to a summary. The parsed value keeps the CLI's JSON for programmatic callers, but a model that reads only the text can miss fields; ask for a narrower `kind` when a list matters.
-- **It wraps a checkout, not a release.** The tools run this repository's `bin/hyprscope.ts` and depend on its `--json` shapes. The directory has to stay in place, and a CLI change can change what a tool returns. It also does not build the C helpers: plans that inject still need `bin/wl-inject`, the baseline probe still needs `bin/wl-scratch`, and a window capture needs `bin/wl-capture` from `pnpm run build:capture` (the quick start in [README.md](/README.md) covers the first two).
+- **It wraps the package, not a frozen API.** The tools run the package's CLI entry — `bin/hyprscope.ts` in a checkout, `dist/bin/hyprscope.js` in an installed package — and depend on its `--json` shapes. The package has to stay in place, and a CLI change can change what a tool returns. It also does not build the C helpers: plans that inject still need `bin/wl-inject`, the baseline probe still needs `bin/wl-scratch`, and a window capture needs `bin/wl-capture` from `pnpm run build:capture` (the quick start in [README.md](/README.md) covers the first two).
 - **Images need an image-capable route.** The screenshot tool attaches the PNG only when the session has an attachment store and the routed model declares image input. Otherwise, with no store, a text-only route, an unresolved route or a failed save, the result still carries the path, size and hash with an `imageError` note, and the capture itself still succeeds.
 - **No CUA provider.** The bundle gives the model tools; wiring the same operations into DSH's CUA provider is future work, not part of this plugin.
 - **The desktop bridges add no control path.** They spawn only `hyprscope message ...` and the read-only `screenshot`, never `hyprscope control`; they inject through the Host's `sessionController.prompt` as ordinary user messages, never answer a card, take no lease and change no desktop state.

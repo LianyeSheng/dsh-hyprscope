@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation / 文档
+    url: https://github.com/LianyeSheng/dsh-hyprscope/tree/main/docs
+    about: Protocol, plan format, lease design and the DSH plugin reference. / 协议、计划格式、租约设计和 DSH 插件参考。
+  - name: Questions and ideas / 提问与讨论
+    url: https://github.com/LianyeSheng/dsh-hyprscope/discussions
+    about: Ask before filing, or share how you use it. / 先问再提，或分享你的用法。

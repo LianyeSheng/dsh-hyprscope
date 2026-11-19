@@ -1,8 +1,9 @@
 /** Consent and control overlay process, rendered by Quickshell. */
 import { spawn } from 'node:child_process'
-import { closeSync, openSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
+import { closeSync, existsSync, openSync } from 'node:fs'
+import { join, sep } from 'node:path'
 import { ErrorCode, HyprscopeError } from '../errors.ts'
+import { binDir, overlayDirectory as resolveOverlayDirectory, packageRoot } from '../paths.ts'
 import type { RenderLanguage } from '../i18n.ts'
 import { discoverSession } from '../session.ts'
 import { ensureLeaseDirectory, type LeasePaths, type LeaseState } from './state.ts'
@@ -21,14 +22,35 @@ export type OverlayFactory = (paths: LeasePaths, state: LeaseState) => Promise<O
  * @returns Absolute path of the QML overlay directory.
  */
 export function overlayDirectory(): string {
-  return fileURLToPath(new URL('../../overlay', import.meta.url))
+  return resolveOverlayDirectory()
+}
+
+/**
+ * Pick the entry point Node can actually execute.
+ *
+ * A checkout keeps its sources in `.ts` and Node runs them directly, so the
+ * source wins there and a stale emitted `.js` never shadows a fresh edit. An
+ * installed package lives under `node_modules`, where Node refuses to strip
+ * types, so the emitted entry under `dist/` is the only runnable file:
+ * `dist/bin/hyprscope.js`.
+ *
+ * @param tsPath Absolute path of the TypeScript entry.
+ * @param jsPath Absolute path of the emitted JavaScript entry.
+ * @returns The path to spawn.
+ */
+export function preferredEntry(tsPath: string, jsPath: string): string {
+  if (tsPath.split(sep).includes('node_modules')) return existsSync(jsPath) ? jsPath : tsPath
+  return existsSync(tsPath) ? tsPath : jsPath
 }
 
 /**
  * @returns Absolute path of the `hyprscope` entry point the overlay invokes.
  */
 export function hyprscopeBin(): string {
-  return fileURLToPath(new URL('../../bin/hyprscope.ts', import.meta.url))
+  return preferredEntry(
+    join(binDir(), 'hyprscope.ts'),
+    join(packageRoot(), 'dist', 'bin', 'hyprscope.js'),
+  )
 }
 
 /** @param ms Delay in milliseconds. */

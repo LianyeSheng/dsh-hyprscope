@@ -1,9 +1,10 @@
 /** Optional Wayland capability probe built from `probe/wl-globals.c`. */
 import { existsSync } from 'node:fs'
 import { execFile } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { ErrorCode, HyprscopeError } from './errors.ts'
+import { binDir } from './paths.ts'
 import type { Session, WaylandGlobal, WaylandProbe } from './types.ts'
 
 const run = promisify(execFile)
@@ -16,7 +17,7 @@ export type WaylandCapabilities = WaylandProbe['capabilities']
  * @returns Path under the package `bin/` directory.
  */
 export function probeBinaryPath(): string {
-  return fileURLToPath(new URL('../bin/wl-globals', import.meta.url))
+  return join(binDir(), 'wl-globals')
 }
 
 /**

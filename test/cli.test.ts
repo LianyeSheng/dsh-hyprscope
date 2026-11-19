@@ -54,6 +54,9 @@ test('main prints usage and exits 0 for --help', async () => {
   const code = await main(['--help'], { stdout, stderr: sink() })
   assert.equal(code, 0)
   assert.match(stdout.text, /Usage: hyprscope/)
+  // Agents read this help too: the feedback route has to be in it.
+  assert.match(stdout.text, /github\.com\/LianyeSheng\/dsh-hyprscope\/issues/)
+  assert.match(stdout.text, /doctor --json/)
 })
 
 test('main prints usage and exits 2 for no command', async () => {

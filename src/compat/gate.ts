@@ -58,8 +58,9 @@ export function planCapabilityIssues(plan: Plan, baseline: LoadedBaseline | null
       path: '$',
       capability: null,
       level: null,
-      message: 'No accepted capability baseline exists on this machine, so control is unavailable; '
-        + 'run "hyprscope control baseline --probe" and let the host accept the confirmation card',
+      message: 'No accepted capability baseline exists for this desktop, so control is unavailable; '
+        + 'run "hyprscope control baseline --probe" (a nested desktop needs --desktop agent, '
+        + 'an attached one --desktop external) and let the host accept the confirmation card',
     }]
   }
   if (baseline.state === 'incomplete') return missingRequiredIssues(baseline)

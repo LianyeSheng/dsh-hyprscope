@@ -12,8 +12,8 @@
   en: d3eec1140bd0e146
   zh: e1f9294ab12d84c1
 /dsh-plugin-for-hyprscope/installing-the-bundle:
-  en: ade426c3b6aa14d6
-  zh: 40eb586492db5ca2
+  en: dfe1d1c36c3eb1ac
+  zh: a73b739941f2ca1d
 /dsh-plugin-for-hyprscope/editing-the-bundle:
   en: 258774c56247b4a8
   zh: 775279f1ef950d1c
@@ -35,12 +35,15 @@
 /dsh-plugin-for-hyprscope/when-a-call-fails:
   en: aed1d807c7fb1f39
   zh: 21c45830128bd366
+/dsh-plugin-for-hyprscope/feedback-from-the-agent:
+  en: 2b3663cc518e7638
+  zh: f773d8435930caa1
 /dsh-plugin-for-hyprscope/configuration:
-  en: 4aeb588c1a41c3e3
-  zh: f6dec6090a755f39
+  en: 3a6c16509fc85e6a
+  zh: a6b2739aa87a7673
 /dsh-plugin-for-hyprscope/how-the-safety-boundary-holds:
   en: 01006e60f002ed56
   zh: fd6c9747a5aba689
 /dsh-plugin-for-hyprscope/limitations:
-  en: d1a1cc180afb280c
-  zh: 6900975872165337
+  en: 099bcf8d159b74ce
+  zh: aa6a9c01307f9a9d
